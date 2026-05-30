@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wordeditor",
+      "runtimeExecutable": "C:/xampp/php/php.exe",
+      "runtimeArgs": ["-S", "127.0.0.1:8899", "-t", "d:/Teste cursor/HTML Editor/Word Editor"],
+      "port": 8899
+    }
+  ]
+}

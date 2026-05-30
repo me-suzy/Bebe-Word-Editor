@@ -1,0 +1,12 @@
+# arhive / backupuri redundante
+*.zip
+
+# artefacte temporare
+_recover.html
+tmp_*
+*.log
+
+# sistem
+Thumbs.db
+desktop.ini
+.DS_Store

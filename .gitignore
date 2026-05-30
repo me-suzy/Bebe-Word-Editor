@@ -1,6 +1,3 @@
-# arhive / backupuri redundante
-*.zip
-
 # artefacte temporare
 _recover.html
 tmp_*

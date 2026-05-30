@@ -1,4 +1,4 @@
-# Word Editor — editor de documente `.docx` / `.doc` / `.odt` / `.pdf`
+# Bebe - Word Editor — editor de documente `.docx` / `.doc` / `.odt` / `.pdf`
 
 Editor de documente office, în browser, cu aspect și comportament tip **Microsoft Word**:
 deschide fișiere Word/ODT/PDF, le afișează **paginat pe coli A4** (cu scroll și Page Up/Down),

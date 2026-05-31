@@ -439,6 +439,34 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    // Cauta calea reala pe disc a unui fisier dupa nume (+ dimensiune) — pentru drag&drop,
+    // ca sa putem face overwrite pe fisierul original fara sa intrebam unde.
+    if ($action === 'findpath') {
+        $name = basename(str_replace('\\', '/', isset($_GET['name']) ? $_GET['name'] : ''));
+        $size = isset($_GET['size']) ? (int) $_GET['size'] : -1;
+        if ($name === '') {
+            echo json_encode(['ok' => false, 'matches' => []]);
+            exit;
+        }
+        $root = str_replace('/', '\\', rtrim($ROOT, '/'));
+        $cmd = 'dir /s /b "' . $root . '\\' . $name . '" 2>nul';
+        $lines = [];
+        @exec($cmd, $lines);
+        $matches = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || !is_file($line))
+                continue;
+            if ($size >= 0 && @filesize($line) !== $size)
+                continue;   // potrivire pe dimensiune → acelasi fisier
+            $norm = str_replace('\\', '/', $line);
+            if (!in_array($norm, $matches))
+                $matches[] = $norm;
+        }
+        echo json_encode(['ok' => true, 'matches' => $matches], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     echo json_encode(['ok' => false, 'error' => 'actiune necunoscuta']);
     exit;
 }
@@ -1258,7 +1286,7 @@ if (isset($_GET['action'])) {
                 <button onclick="openFromOverlayPath()">Deschide</button>
             </div>
             <div class="overlay-row">
-                <div class="drop-zone" id="dropZone" onclick="document.getElementById('filePicker').click()">
+                <div class="drop-zone" id="dropZone" onclick="pickFile()">
                     <div class="big">📄⤓</div>
                     <div class="lbl">Drag &amp; Drop fișier aici</div>
                     <div class="hint">sau click pentru a alege un fișier (.docx .doc .odt .pdf)</div>
@@ -1607,17 +1635,21 @@ if (isset($_GET['action'])) {
             }
         }
 
-        // ── Deschidere din fisier local (drag&drop / file picker) — fara cale pe disc ──
-        async function openDroppedFile(file) {
+        // ── Deschidere din fisier local (drag&drop / file picker) ──
+        //  handle = FileSystemFileHandle (dacă browserul îl oferă) → permite salvare/overwrite direct pe disc
+        async function openDroppedFile(file, handle) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
             setInfo('Se încarcă…'); hideOverlay();
+            // atașează handle-ul pe tab-ul rezultat (doar pentru docx — scriem docx peste docx)
+            const attach = () => { const t = curTab(); if (t && handle && ext === 'docx') t.handle = handle; };
             try {
                 if (ext === 'docx') {
                     const fd = new FormData(); fd.append('f', file);
                     const j = await (await fetch(api('action=docx2html'), { method: 'POST', body: fd })).json();
                     if (!j.ok) throw new Error(j.error);
                     if (j.ole2) { renderDoc(OLE2_MSG); afterOpen(file.name, 'doc', null); return; }
-                    renderDoc(j.html || '<p><br></p>'); afterOpen(file.name, ext, null);
+                    renderDoc(j.html || '<p><br></p>'); afterOpen(file.name, ext, null); attach();
+                    await resolveDroppedPath(file, ext);   // află calea reală pe disc → overwrite la save
                 } else if (ext === 'pdf') {
                     const buf = await file.arrayBuffer();
                     await loadPdf({ data: new Uint8Array(buf) });
@@ -1633,6 +1665,25 @@ if (isset($_GET['action'])) {
             } catch (e) {
                 renderDoc('<p style="color:#a00">Eroare la deschidere: ' + escapeHtml(e.message) + '</p>'); setInfo('Eroare');
             }
+        }
+
+        // Drag&drop docx: caută calea reală pe disc (după nume+dimensiune) → permite overwrite tăcut
+        async function resolveDroppedPath(file, ext) {
+            if (ext !== 'docx') return;
+            try {
+                const j = await (await fetch(api('action=findpath&name=' + encodeURIComponent(file.name) + '&size=' + file.size))).json();
+                if (j.ok && j.matches && j.matches.length === 1) {
+                    const real = j.matches[0];
+                    const t = curTab();
+                    if (t) { t.path = real; t.file = real; t.savedHtml = getDocHtml(); }
+                    currentFile = real; currentExt = 'docx';
+                    // persistă în istoricul de durată (localStorage) și scoate intrarea de sesiune (drag&drop)
+                    sessionDropped = sessionDropped.filter(e => e.name !== file.name);
+                    recordRecent({ path: real, name: real.split(/[\\/]/).pop(), ext: 'docx' });
+                    renderTabs();
+                    setInfo('Sursă: ' + real);
+                }
+            } catch (e) { /* fără cale → la save va folosi handle sau va întreba */ }
         }
 
         // randeaza continut docx/odt (non-pdf) si ascunde randarea pdf
@@ -1691,9 +1742,47 @@ if (isset($_GET['action'])) {
         let typingActive = false, typingTimer = null, suppressSnap = false;
         const UNDO_MAX = 60;
         function curTab() { return tabs.find(t => t.id === activeId) || null; }
+
+        // poziția caretului ca offset de caractere de la începutul documentului (robust la re-paginare)
+        function caretOffset() {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return null;
+            const r = sel.getRangeAt(0);
+            if (!page.contains(r.startContainer)) return null;
+            const pre = document.createRange();
+            pre.selectNodeContents(page);
+            try { pre.setEnd(r.startContainer, r.startOffset); } catch (e) { return null; }
+            return pre.toString().length;   // nr. de caractere de la început până la caret (text/element)
+        }
+        function setCaretByOffset(n) {
+            if (n == null) return false;
+            let count = 0, node;
+            const w = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+            while ((node = w.nextNode())) {
+                const len = node.nodeValue.length;
+                if (count + len >= n) {
+                    const r = document.createRange();
+                    r.setStart(node, Math.max(0, Math.min(len, n - count)));
+                    r.collapse(true);
+                    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+                    const el = node.parentElement;
+                    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+                    return true;
+                }
+                count += len;
+            }
+            return false;
+        }
+        function snapshot() { return { html: getDocHtml(), caret: caretOffset(), scroll: canvasEl.scrollTop }; }
+        function restoreSnap(s) {
+            setDocHtml(s.html);
+            page.focus();
+            if (!setCaretByOffset(s.caret)) canvasEl.scrollTop = s.scroll || 0;   // fallback: scroll
+            else if (s.caret == null) canvasEl.scrollTop = s.scroll || 0;
+        }
         function pushState() {                 // snapshot pe stiva tab-ului activ
             const t = curTab(); if (!t) return;
-            (t.undo || (t.undo = [])).push(getDocHtml());
+            (t.undo || (t.undo = [])).push(snapshot());
             if (t.undo.length > UNDO_MAX) t.undo.shift();
             if (t.redo) t.redo.length = 0;     // golire in-place (păstrează referința)
         }
@@ -1706,15 +1795,15 @@ if (isset($_GET['action'])) {
         function doUndo() {
             const t = curTab();
             if (!t || !t.undo || !t.undo.length) { toast('Nimic de anulat'); return; }
-            (t.redo || (t.redo = [])).push(getDocHtml());
-            setDocHtml(t.undo.pop());
+            (t.redo || (t.redo = [])).push(snapshot());
+            restoreSnap(t.undo.pop());
             setInfo('Undo'); typingActive = false;
         }
         function doRedo() {
             const t = curTab();
             if (!t || !t.redo || !t.redo.length) { toast('Nimic de refăcut'); return; }
-            t.undo.push(getDocHtml());
-            setDocHtml(t.redo.pop());
+            t.undo.push(snapshot());
+            restoreSnap(t.redo.pop());
             setInfo('Redo'); typingActive = false;
         }
         // tastarea: un snapshot per „rafală" (grupează tastele rapide, granularitate ca în editoare)
@@ -1945,18 +2034,66 @@ if (isset($_GET['action'])) {
         });
 
         // ── Save → docx ──
+        //  • fișier deschis cu „handle" (drag&drop / file picker)  → suprascrie ACELAȘI fișier, fără întrebare
+        //  • fișier cu cale pe server (sidebar / cale / recente)   → overwrite automat, fără întrebare
+        //  • fișier nou (nesalvat, fără cale)                      → întreabă unde să-l salveze
+        async function ensureWritable(handle) {
+            const opts = { mode: 'readwrite' };
+            if ((await handle.queryPermission(opts)) === 'granted') return true;
+            return (await handle.requestPermission(opts)) === 'granted';
+        }
         async function saveDocx() {
+            const t = curTab();
             const inner = getDocHtml();
             const full = '<!DOCTYPE html><html><head><meta charset="utf-8">'
                 + '<style>body{font-family:"Times New Roman",serif;font-size:12pt}</style></head><body>'
                 + inner + '</body></html>';
-            if (typeof htmlDocx === 'undefined') { toast('html-docx-js neîncărcat'); return; }
+            if (typeof htmlDocx === 'undefined') { toast('html-docx-js neîncărcat'); return false; }
             const blob = htmlDocx.asBlob(full);
-            const b64 = await blobToBase64(blob);
 
-            let target = currentFile;
-            // PDF/ODT/DOC → salveaza ca .docx alaturi
-            if (!target) { target = prompt('Salvează ca (cale .docx):', 'e:/Carte/document.docx'); if (!target) return false; }
+            // 1) cale cunoscută pe disc (sidebar / cale / drag&drop rezolvat) → overwrite tăcut prin server (fără prompt de permisiune)
+            if (currentFile) {
+                const b64 = await blobToBase64(blob);
+                let target = currentFile;
+                if (currentExt && currentExt !== 'docx') {
+                    target = target.replace(/\.(pdf|odt|doc)$/i, '.docx');
+                    if (!/\.docx$/i.test(target)) target += '.docx';
+                }
+                setInfo('Se salvează…');
+                const fd = new FormData(); fd.append('file', target); fd.append('content', b64);
+                try {
+                    const r = await fetch(api('action=savebin'), { method: 'POST', body: fd });
+                    const j = await r.json();
+                    if (j.ok) {
+                        toast('Salvat: ' + j.file.split('/').pop() + ' (' + j.bytes + ' B)');
+                        setInfo('Salvat ' + new Date().toLocaleTimeString());
+                        currentFile = j.file; currentExt = 'docx';
+                        document.getElementById('fileName').textContent = j.file;
+                        if (t) { t.savedHtml = inner; t.html = inner; t.path = j.file; t.ext = 'docx'; t.file = j.file; }
+                        renderTabs();
+                        return true;
+                    } else { toast('Eroare: ' + j.error); setInfo('Eroare salvare'); return false; }
+                } catch (e) { toast('Eroare salvare: ' + e.message); return false; }
+            }
+
+            // 2) handle direct (drag&drop / picker, fără cale rezolvată pe server) → suprascrie fișierul original
+            if (t && t.handle) {
+                try {
+                    setInfo('Se salvează…');
+                    if (!await ensureWritable(t.handle)) { toast('Permisiune de scriere refuzată'); setInfo('Anulat'); return false; }
+                    const w = await t.handle.createWritable();
+                    await w.write(blob); await w.close();
+                    t.savedHtml = inner; t.html = inner; t.ext = 'docx';
+                    toast('Salvat: ' + (t.file || t.handle.name)); setInfo('Salvat ' + new Date().toLocaleTimeString());
+                    return true;
+                } catch (e) { toast('Eroare salvare: ' + e.message); setInfo('Eroare salvare'); return false; }
+            }
+
+            // 3) fără cale și fără handle → fișier nou → întreabă unde să salvez
+            const b64 = await blobToBase64(blob);
+            let target = await askSavePath('e:/Carte/document.docx');
+            if (!target) return false;
+            if (target === '__handle__') return saveDocx();   // handle setat de showSaveFilePicker → re-salvează prin el
             if (currentExt && currentExt !== 'docx') {
                 target = target.replace(/\.(pdf|odt|doc)$/i, '.docx');
                 if (!/\.docx$/i.test(target)) target += '.docx';
@@ -1973,9 +2110,7 @@ if (isset($_GET['action'])) {
                     setInfo('Salvat ' + new Date().toLocaleTimeString());
                     currentFile = j.file; currentExt = 'docx';
                     document.getElementById('fileName').textContent = j.file;
-                    // marcheaza tab-ul activ ca „curat" (baseline = continutul salvat)
-                    const at = tabs.find(t => t.id === activeId);
-                    if (at) { at.savedHtml = inner; at.html = inner; at.path = j.file; at.ext = 'docx'; at.file = j.file; }
+                    if (t) { t.savedHtml = inner; t.html = inner; t.path = j.file; t.ext = 'docx'; t.file = j.file; }
                     renderTabs();
                     return true;
                 } else { toast('Eroare: ' + j.error); setInfo('Eroare salvare'); return false; }
@@ -2074,8 +2209,8 @@ if (isset($_GET['action'])) {
         function registerOpenedTab(file, ext, path, isPdf) {
             const html = getDocHtml();
             let t = tabs.find(x => (path && x.path === path) || (!path && x.file === file && !x.path));
-            if (!t) { t = { id: ++tabSeq, file, ext, path: path || null, isPdf: !!isPdf, html, savedHtml: html, undo: [], redo: [] }; tabs.push(t); }
-            else { t.html = html; t.savedHtml = html; t.ext = ext; t.isPdf = !!isPdf; t.undo = []; t.redo = []; }
+            if (!t) { t = { id: ++tabSeq, file, ext, path: path || null, isPdf: !!isPdf, html, savedHtml: html, undo: [], redo: [], handle: null }; tabs.push(t); }
+            else { t.html = html; t.savedHtml = html; t.ext = ext; t.isPdf = !!isPdf; t.undo = []; t.redo = []; t.handle = null; }
             activeId = t.id;
             renderTabs();
         }
@@ -2193,10 +2328,49 @@ if (isset($_GET['action'])) {
             ['dragleave', 'drop'].forEach(ev => tb.addEventListener(ev, () => tb.classList.remove('drop-target')));
             // orice fișier tras oriunde în fereastră → îl deschide (ca tab nou)
             window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
-            window.addEventListener('drop', e => {
-                if (e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); openDroppedFile(e.dataTransfer.files[0]); }
+            window.addEventListener('drop', async e => {
+                if (!(e.dataTransfer.files && e.dataTransfer.files.length)) return;
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                // încearcă să obții un handle către fișierul real (Chrome) → permite overwrite la salvare
+                const item = e.dataTransfer.items && e.dataTransfer.items[0];
+                let handle = null;
+                if (item && item.getAsFileSystemHandle) {
+                    try { const h = await item.getAsFileSystemHandle(); if (h && h.kind === 'file') handle = h; } catch (_) { }
+                }
+                openDroppedFile(file, handle);
             });
         })();
+
+        // alegere fișier (click pe zona de drop): showOpenFilePicker (cu handle) sau input clasic
+        async function pickFile() {
+            if (window.showOpenFilePicker) {
+                try {
+                    const [h] = await window.showOpenFilePicker({
+                        types: [{ description: 'Documente', accept: { 'application/octet-stream': ['.docx', '.doc', '.odt', '.pdf'] } }]
+                    });
+                    const file = await h.getFile();
+                    openDroppedFile(file, h);
+                    return;
+                } catch (e) { if (e && e.name === 'AbortError') return; }
+            }
+            document.getElementById('filePicker').click();   // fallback
+        }
+        // salvare fișier nou: showSaveFilePicker (dialog nativ + handle) sau prompt pentru cale server
+        async function askSavePath(def) {
+            const t = curTab();
+            if (window.showSaveFilePicker) {
+                try {
+                    const h = await window.showSaveFilePicker({
+                        suggestedName: (t && t.file ? t.file.split(/[\\/]/).pop().replace(/\.\w+$/, '') : 'document') + '.docx',
+                        types: [{ description: 'Document Word', accept: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } }]
+                    });
+                    if (t) t.handle = h;     // ține minte handle-ul → salvările următoare suprascriu direct
+                    return '__handle__';     // semnal: re-salvează prin handle
+                } catch (e) { if (e && e.name === 'AbortError') return null; }
+            }
+            return prompt('Salvează ca (cale .docx):', def);
+        }
 
         // ── Istoric fișiere (ultimele 15, ordonate după data deschiderii/închiderii) ──
         //  • fișiere cu cale (sidebar/cale/recente) → persistă în localStorage (reopenabile oricând)

@@ -1112,6 +1112,261 @@ if (isset($_GET['action'])) {
             padding: 8px 16px;
             cursor: pointer;
         }
+
+        /* ── Grup Editing (Find / Replace / Select), stil Word ── */
+        .editing-col {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .ebtn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid transparent;
+            background: transparent;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 3px 8px 3px 5px;
+            font-size: 12.5px;
+            color: #201f1e;
+            white-space: nowrap;
+            text-align: left;
+        }
+
+        .ebtn:hover {
+            background: var(--btn-hover);
+            border-color: #c8c6c4;
+        }
+
+        .ebtn .ei {
+            color: var(--accent);
+            font-size: 13px;
+            width: 15px;
+            text-align: center;
+        }
+
+        .ebtn .caret {
+            margin-left: auto;
+            font-size: 9px;
+            color: #605e5c;
+        }
+
+        .select-menu {
+            position: fixed;
+            z-index: 1500;
+            background: #fff;
+            border: 1px solid #c8c6c4;
+            border-radius: 4px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, .22);
+            padding: 4px;
+            min-width: 290px;
+            display: none;
+        }
+
+        .select-menu.open {
+            display: block;
+        }
+
+        .select-menu .item {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 7px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .select-menu .item:hover {
+            background: var(--accent-light);
+        }
+
+        .select-menu .item .mi {
+            color: var(--accent);
+            width: 18px;
+            text-align: center;
+        }
+
+        .select-menu .sep {
+            height: 1px;
+            background: #e1dfdd;
+            margin: 4px 2px;
+        }
+
+        /* ── Dialog Find and Replace (stil Word) ── */
+        .fr-dialog {
+            position: fixed;
+            top: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 560px;
+            max-width: 95vw;
+            background: #f3f2f1;
+            border: 1px solid #b9b7b4;
+            border-radius: 6px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, .35);
+            z-index: 2500;
+            display: none;
+            font-size: 13px;
+            color: #201f1e;
+        }
+
+        .fr-dialog.open {
+            display: block;
+        }
+
+        .fr-titlebar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            background: #fff;
+            border-bottom: 1px solid #e1dfdd;
+            border-radius: 6px 6px 0 0;
+            cursor: move;
+            font-weight: 600;
+        }
+
+        .fr-titlebar .x {
+            cursor: pointer;
+            color: #605e5c;
+            font-size: 16px;
+        }
+
+        .fr-tabs {
+            display: flex;
+            gap: 2px;
+            padding: 8px 12px 0;
+        }
+
+        .fr-tab {
+            padding: 5px 16px;
+            border: 1px solid #c8c6c4;
+            border-bottom: none;
+            background: #e6e4e2;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+        }
+
+        .fr-tab.active {
+            background: #fff;
+            font-weight: 600;
+        }
+
+        .fr-body {
+            background: #fff;
+            border: 1px solid #c8c6c4;
+            margin: 0 12px;
+            padding: 14px;
+        }
+
+        .fr-field {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .fr-field label {
+            width: 86px;
+            text-align: right;
+            color: #201f1e;
+        }
+
+        .fr-field input[type=text] {
+            flex: 1;
+            padding: 4px 7px;
+            border: 1px solid #8a8886;
+            border-radius: 2px;
+            font-size: 13px;
+        }
+
+        .fr-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+
+        .fr-actions.left {
+            justify-content: space-between;
+        }
+
+        .fr-btn {
+            padding: 5px 14px;
+            border: 1px solid #8a8886;
+            background: #fdfdfd;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12.5px;
+            min-width: 84px;
+        }
+
+        .fr-btn:hover {
+            background: #eaeaea;
+        }
+
+        .fr-btn:disabled {
+            color: #a19f9d;
+            cursor: default;
+            background: #f3f2f1;
+        }
+
+        .fr-options {
+            border-top: 1px solid #e1dfdd;
+            margin-top: 12px;
+            padding-top: 10px;
+            display: none;
+        }
+
+        .fr-options.open {
+            display: block;
+        }
+
+        .fr-opt-title {
+            font-weight: 600;
+            color: #605e5c;
+            margin-bottom: 8px;
+        }
+
+        .fr-search-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .fr-checks {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px 18px;
+        }
+
+        .fr-checks label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12.5px;
+        }
+
+        .fr-checks label.disabled {
+            color: #a19f9d;
+        }
+
+        .fr-format-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            border-top: 1px solid #e1dfdd;
+            padding-top: 10px;
+        }
+
+        .fr-footer {
+            padding: 10px 12px;
+        }
     </style>
 </head>
 
@@ -1240,20 +1495,37 @@ if (isset($_GET['action'])) {
             <div class="rgroup-label">Inserare</div>
         </div>
 
-        <!-- Editing + extra (Mini Dreamweaver) -->
+        <!-- Extra (Mini Dreamweaver) -->
         <div class="rgroup">
-            <div class="rgroup-row" style="max-width:230px">
+            <div class="rgroup-row" style="max-width:200px">
                 <button class="rbtn" title="Anulează (Ctrl+Z)" onclick="doUndo()">↶ Undo</button>
                 <button class="rbtn" title="Refă (Ctrl+Y)" onclick="doRedo()">↷ Redo</button>
-                <button class="rbtn" title="Găsește / Înlocuiește (Ctrl+H)" onclick="toggleFind()">🔍</button>
-                <button class="rbtn" title="Selectează tot (Ctrl+A)" onclick="cmd('selectAll')">▤</button>
                 <button class="rbtn" title="Re-paginează pe coli A4 (Alt+P)" onclick="repaginate()">⇲¶</button>
                 <div class="rsep"></div>
                 <button class="rbtn" title="Diacritice românești" onclick="toggleDiac()" style="font-size:15px">Ă</button>
                 <button class="rbtn" title="Traducere (Google Translate)" onclick="openTranslate()">🌐</button>
             </div>
-            <div class="rgroup-label">Editare / Extra</div>
+            <div class="rgroup-label">Extra</div>
         </div>
+
+        <!-- Editing (stil Word: Find / Replace / Select) -->
+        <div class="rgroup">
+            <div class="editing-col">
+                <button class="ebtn" title="Găsește (Ctrl+F)" onclick="openFindReplace('find')"><span class="ei">🔍</span> Find <span class="caret">▾</span></button>
+                <button class="ebtn" title="Înlocuiește (Ctrl+H)" onclick="openFindReplace('replace')"><span class="ei">⇄</span> Replace</button>
+                <button class="ebtn" id="btnSelect" title="Selectează" onclick="toggleSelectMenu(event)"><span class="ei">▦</span> Select <span class="caret">▾</span></button>
+            </div>
+            <div class="rgroup-label">Editing</div>
+        </div>
+    </div>
+
+    <!-- Meniu „Select" (ca în Word) -->
+    <div class="select-menu" id="selectMenu">
+        <div class="item" onclick="selSelectAll()"><span class="mi">▣</span> Select All <span style="margin-left:auto;color:#a19f9d;font-size:11px">Ctrl+A</span></div>
+        <div class="item" onclick="selSelectObjects()"><span class="mi">⬚</span> Select Objects</div>
+        <div class="item" onclick="selSelectSimilar()"><span class="mi">¶</span> Select All Text With Similar Formatting</div>
+        <div class="sep"></div>
+        <div class="item" onclick="selOpenSelectionPane()"><span class="mi">☰</span> Selection Pane…</div>
     </div>
 
     <!-- MAIN -->
@@ -1304,18 +1576,85 @@ if (isset($_GET['action'])) {
         </div>
     </div>
 
-    <!-- POPUP: Find & Replace -->
-    <div class="popup" id="findPopup">
-        <h4 id="findHandle">Găsește & Înlocuiește <span class="close-x" onclick="toggleFind()">&times;</span></h4>
-        <div class="body">
-            <input type="text" id="findInput" placeholder="Găsește…">
-            <input type="text" id="replaceInput" placeholder="Înlocuiește cu…">
-            <div class="row">
-                <button onclick="findNext()">Următorul</button>
-                <button onclick="replaceOne()">Înlocuiește</button>
-                <button class="primary" onclick="replaceAll()">Înlocuiește tot</button>
+    <!-- DIALOG: Find and Replace (stil Word) -->
+    <div class="fr-dialog" id="frDialog">
+        <div class="fr-titlebar" id="frTitle">Find and Replace <span class="x" onclick="closeFR()">&times;</span></div>
+        <div class="fr-tabs">
+            <div class="fr-tab" id="frTabFind" onclick="frSwitchTab('find')">Find</div>
+            <div class="fr-tab" id="frTabReplace" onclick="frSwitchTab('replace')">Replace</div>
+            <div class="fr-tab" id="frTabGoto" onclick="frSwitchTab('goto')">Go To</div>
+        </div>
+        <div class="fr-body">
+            <!-- Find / Replace -->
+            <div id="frPaneFR">
+                <div class="fr-field"><label for="frFind">Find what:</label><input type="text" id="frFind"></div>
+                <div class="fr-field" id="frReplaceField"><label for="frReplace">Replace with:</label><input type="text" id="frReplace"></div>
+                <div class="fr-actions left">
+                    <button class="fr-btn" id="frMoreBtn" onclick="frToggleMore()">&lt;&lt; Less</button>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="fr-btn" id="frReplaceBtn" onclick="frReplace()">Replace</button>
+                        <button class="fr-btn" id="frReplaceAllBtn" onclick="frReplaceAll()">Replace All</button>
+                        <button class="fr-btn" onclick="frFindNext(false)">Find Next</button>
+                        <button class="fr-btn" onclick="closeFR()">Cancel</button>
+                    </div>
+                </div>
+
+                <div class="fr-options open" id="frOptions">
+                    <div class="fr-opt-title">Search Options</div>
+                    <div class="fr-search-row">
+                        <label for="frDir">Search:</label>
+                        <select id="frDir" class="rsel" style="height:26px">
+                            <option value="all">All</option>
+                            <option value="down">Down</option>
+                            <option value="up">Up</option>
+                        </select>
+                    </div>
+                    <div class="fr-checks">
+                        <label><input type="checkbox" id="frMatchCase"> Match case</label>
+                        <label><input type="checkbox" id="frPrefix"> Match prefix</label>
+                        <label><input type="checkbox" id="frWhole"> Find whole words only</label>
+                        <label><input type="checkbox" id="frSuffix"> Match suffix</label>
+                        <label><input type="checkbox" id="frWildcards"> Use wildcards (regex)</label>
+                        <label class="disabled"><input type="checkbox" disabled> Ignore punctuation characters</label>
+                        <label class="disabled"><input type="checkbox" disabled> Sounds like (English)</label>
+                        <label><input type="checkbox" id="frIgnoreSpace"> Ignore white-space characters</label>
+                        <label class="disabled"><input type="checkbox" disabled> Find all word forms (English)</label>
+                    </div>
+                    <div class="fr-format-row">
+                        <button class="fr-btn" onclick="toast('Format pe selecție: folosește butoanele din ribbon')">Format ▾</button>
+                        <button class="fr-btn" id="frSpecialBtn" onclick="frSpecial(event)">Special ▾</button>
+                        <button class="fr-btn" onclick="document.getElementById('frFind').value='';document.getElementById('frReplace').value='';">No Formatting</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Go To -->
+            <div id="frPaneGoto" style="display:none">
+                <div class="fr-field"><label for="frGoto">Pagina:</label><input type="text" id="frGoto" placeholder="Nr. pagină (1…N)"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();frGoTo();}"></div>
+                <div class="fr-actions">
+                    <button class="fr-btn" onclick="frGoToRel(-1)">Previous</button>
+                    <button class="fr-btn" onclick="frGoToRel(1)">Next</button>
+                    <button class="fr-btn" onclick="frGoTo()">Go To</button>
+                    <button class="fr-btn" onclick="closeFR()">Cancel</button>
+                </div>
             </div>
         </div>
+        <div class="fr-footer"></div>
+    </div>
+
+    <!-- mini-meniu pentru „Special ▾" -->
+    <div class="select-menu" id="frSpecialMenu" style="min-width:200px">
+        <div class="item" onclick="frInsertSpecial('^p')"><span class="mi">¶</span> Paragraph Mark (^p)</div>
+        <div class="item" onclick="frInsertSpecial('^t')"><span class="mi">⇥</span> Tab Character (^t)</div>
+        <div class="item" onclick="frInsertSpecial('^?')"><span class="mi">?</span> Any Character (^?)</div>
+        <div class="item" onclick="frInsertSpecial('^#')"><span class="mi">#</span> Any Digit (^#)</div>
+    </div>
+
+    <!-- Selection Pane -->
+    <div class="popup" id="selPane" style="width:280px">
+        <h4 id="selPaneHandle">Selection Pane <span class="close-x" onclick="document.getElementById('selPane').classList.remove('open')">&times;</span></h4>
+        <div class="body" id="selPaneBody" style="max-height:300px;overflow:auto"></div>
     </div>
 
     <!-- POPUP: Open by path -->
@@ -2124,34 +2463,215 @@ if (isset($_GET['action'])) {
             });
         }
 
-        // ── Find & Replace ──
-        function toggleFind() { document.getElementById('findPopup').classList.toggle('open'); }
-        function findNext() {
-            const q = document.getElementById('findInput').value;
-            if (q) window.find ? window.find(q) : toast('Browser fără window.find');
+        // ── Find and Replace (dialog stil Word) ──
+        function openFindReplace(tab) {
+            const d = document.getElementById('frDialog');
+            d.classList.add('open');
+            frSwitchTab(tab || 'find');
+            const q = (window.getSelection().toString() || '').trim();
+            if (q && q.length < 80) document.getElementById('frFind').value = q;
+            setTimeout(() => { (tab === 'goto' ? document.getElementById('frGoto') : document.getElementById('frFind')).focus(); }, 30);
         }
-        function replaceOne() {
-            const q = document.getElementById('findInput').value;
-            const r = document.getElementById('replaceInput').value;
-            const sel = window.getSelection();
-            if (sel.toString() === q && q) { runCmd(() => document.execCommand('insertText', false, r)); }
-            findNext();
+        function closeFR() { document.getElementById('frDialog').classList.remove('open'); }
+        function frSwitchTab(tab) {
+            frTab = tab;
+            ['find', 'replace', 'goto'].forEach(t => document.getElementById('frTab' + t[0].toUpperCase() + t.slice(1)).classList.toggle('active', t === tab));
+            document.getElementById('frPaneFR').style.display = (tab === 'goto') ? 'none' : 'block';
+            document.getElementById('frPaneGoto').style.display = (tab === 'goto') ? 'block' : 'none';
+            // în tab-ul Find ascundem câmpul „Replace with" și butoanele de replace
+            const isRep = tab === 'replace';
+            document.getElementById('frReplaceField').style.display = isRep ? 'flex' : 'none';
+            document.getElementById('frReplaceBtn').style.display = isRep ? 'inline-block' : 'none';
+            document.getElementById('frReplaceAllBtn').style.display = isRep ? 'inline-block' : 'none';
         }
-        function replaceAll() {
-            const q = document.getElementById('findInput').value;
-            const r = document.getElementById('replaceInput').value;
-            if (!q) return;
-            recordUndo();   // înregistrează tot batch-ul ca un singur undo
-            const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
-            let cnt = 0, node;
-            while ((node = walker.nextNode())) {
-                if (node.nodeValue.includes(q)) {
-                    node.nodeValue = node.nodeValue.split(q).join(r); cnt++;
+        let frTab = 'find';
+        function frToggleMore() {
+            const o = document.getElementById('frOptions'); const b = document.getElementById('frMoreBtn');
+            o.classList.toggle('open');
+            b.textContent = o.classList.contains('open') ? '<< Less' : 'More >>';
+        }
+        function frOpts() {
+            return {
+                matchCase: document.getElementById('frMatchCase').checked,
+                whole: document.getElementById('frWhole').checked,
+                wildcards: document.getElementById('frWildcards').checked,
+                prefix: document.getElementById('frPrefix').checked,
+                suffix: document.getElementById('frSuffix').checked,
+                ignoreSpace: document.getElementById('frIgnoreSpace').checked,
+                dir: document.getElementById('frDir').value
+            };
+        }
+        function frBuildRegex() {
+            const o = frOpts();
+            let q = document.getElementById('frFind').value;
+            if (!q) return null;
+            if (!o.wildcards) q = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (o.ignoreSpace) q = q.replace(/\s+/g, '\\s+');
+            let p = q;
+            if (o.whole) p = '\\b' + p + '\\b';
+            else { if (o.prefix) p = '\\b' + p; if (o.suffix) p = p + '\\b'; }
+            try { return new RegExp(p, 'g' + (o.matchCase ? '' : 'i')); } catch (e) { toast('Expresie invalidă'); return null; }
+        }
+        // hartă text → noduri, pentru a construi Range din offset-uri de caractere
+        function docTextMap() {
+            const nodes = [], w = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+            let n, text = '', pos = 0;
+            while ((n = w.nextNode())) { nodes.push({ node: n, start: pos }); text += n.nodeValue; pos += n.nodeValue.length; }
+            return { text, nodes };
+        }
+        function rangeFromOffsets(map, s, e) {
+            const find = (off) => {
+                for (let i = 0; i < map.nodes.length; i++) {
+                    const it = map.nodes[i], len = it.node.nodeValue.length;
+                    if (off <= it.start + len) return { node: it.node, offset: Math.max(0, off - it.start) };
                 }
+                const last = map.nodes[map.nodes.length - 1];
+                return { node: last.node, offset: last.node.nodeValue.length };
+            };
+            const a = find(s), b = find(e);
+            const r = document.createRange(); r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset); return r;
+        }
+        function frFindNext(forceBack) {
+            const re = frBuildRegex(); if (!re) { toast('Scrie ce cauți'); return; }
+            const o = frOpts();
+            const back = forceBack === true || o.dir === 'up';
+            const map = docTextMap();
+            const matches = []; let m;
+            while ((m = re.exec(map.text))) { matches.push({ s: m.index, e: m.index + m[0].length }); if (m.index === re.lastIndex) re.lastIndex++; }
+            if (!matches.length) { toast('Nu am găsit „' + document.getElementById('frFind').value + '"'); return; }
+            const from = caretOffset() || 0;
+            let target;
+            if (back) target = [...matches].reverse().find(x => x.e < from) || matches[matches.length - 1];
+            else target = matches.find(x => x.s >= from) || matches[0];
+            const r = rangeFromOffsets(map, target.s, target.e);
+            const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+            const host = (r.startContainer.parentElement || page);
+            host.scrollIntoView({ block: 'center' });
+            page.focus(); sel.removeAllRanges(); sel.addRange(r);
+            setInfo(matches.length + ' potriviri');
+        }
+        function frReplace() {
+            const sel = window.getSelection();
+            const repl = document.getElementById('frReplace').value;
+            if (sel.rangeCount && !sel.getRangeAt(0).collapsed && sel.toString().length) {
+                runCmd(() => document.execCommand('insertText', false, repl));
             }
-            if (!cnt) { const t = curTab(); if (t && t.undo) t.undo.pop(); }   // nimic schimbat → scoate snapshot-ul
+            frFindNext(false);
+        }
+        function frReplaceAll() {
+            const re = frBuildRegex(); if (!re) { toast('Scrie ce cauți'); return; }
+            const repl = document.getElementById('frReplace').value;
+            recordUndo();
+            const w = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+            const list = []; let n; while ((n = w.nextNode())) list.push(n);
+            let cnt = 0;
+            list.forEach(node => {
+                re.lastIndex = 0;
+                const out = node.nodeValue.replace(re, () => { cnt++; return repl; });
+                if (out !== node.nodeValue) node.nodeValue = out;
+            });
+            if (!cnt) { const t = curTab(); if (t && t.undo) t.undo.pop(); }
             toast(cnt + ' înlocuiri'); if (cnt) repaginate(); else updateWordCount();
         }
+        function frGoTo() {
+            const n = parseInt(document.getElementById('frGoto').value, 10);
+            const sheets = page.querySelectorAll('.page');
+            if (!(n >= 1) || !sheets.length) return;
+            const s = sheets[Math.min(n, sheets.length) - 1];
+            canvasEl.scrollTo({ top: s.offsetTop - canvasEl.offsetTop - 12, behavior: 'smooth' });
+            setInfo('Pagina ' + Math.min(n, sheets.length));
+        }
+        function frGoToRel(d) { gotoPage(d); }
+        // Special ▾ menu
+        function frSpecial(ev) {
+            const m = document.getElementById('frSpecialMenu');
+            const r = ev.currentTarget.getBoundingClientRect();
+            m.style.left = r.left + 'px'; m.style.top = (r.bottom + 2) + 'px';
+            m.classList.toggle('open');
+            ev.stopPropagation();
+        }
+        function frInsertSpecial(code) {
+            const inp = document.getElementById('frFind');
+            inp.value += code; inp.focus();
+            document.getElementById('frSpecialMenu').classList.remove('open');
+            // ^? → orice caracter, ^# → orice cifră (în mod wildcards/regex)
+            if (code === '^?' || code === '^#') document.getElementById('frWildcards').checked = true;
+            if (code === '^?') inp.value = inp.value.replace('^?', '.');
+            if (code === '^#') inp.value = inp.value.replace('^#', '\\d');
+            if (code === '^t') inp.value = inp.value.replace('^t', '\\t');
+            if (code === '^p') { document.getElementById('frWildcards').checked = true; inp.value = inp.value.replace('^p', '\\n'); }
+        }
+
+        // ── Meniul „Select" ──
+        function toggleSelectMenu(ev) {
+            const m = document.getElementById('selectMenu');
+            const r = document.getElementById('btnSelect').getBoundingClientRect();
+            m.style.left = r.left + 'px'; m.style.top = (r.bottom + 2) + 'px';
+            m.classList.toggle('open');
+            ev.stopPropagation();
+        }
+        function closeSelectMenu() { document.getElementById('selectMenu').classList.remove('open'); }
+        function selSelectAll() {
+            closeSelectMenu(); page.focus();
+            const r = document.createRange(); r.selectNodeContents(page);
+            const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+            setInfo('Tot textul selectat');
+        }
+        function selSelectObjects() {
+            closeSelectMenu();
+            const objs = page.querySelectorAll('img, table');
+            page.querySelectorAll('.obj-outline').forEach(o => o.classList.remove('obj-outline'));
+            objs.forEach(o => o.classList.add('obj-outline'));
+            if (!document.getElementById('objOutlineStyle')) {
+                const st = document.createElement('style'); st.id = 'objOutlineStyle';
+                st.textContent = '.obj-outline{outline:2px solid #2b579a !important;outline-offset:1px}';
+                document.head.appendChild(st);
+            }
+            if (objs.length) objs[0].scrollIntoView({ block: 'center' });
+            toast(objs.length + ' obiecte (imagini/tabele) marcate');
+        }
+        function selSelectSimilar() {
+            closeSelectMenu();
+            const sel = window.getSelection();
+            let n = sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
+            if (n && n.nodeType === 3) n = n.parentElement;
+            if (!n || !page.contains(n)) { toast('Pune cursorul în textul de referință'); return; }
+            const cs = getComputedStyle(n);
+            const key = (el) => { const c = getComputedStyle(el); return c.fontWeight + '|' + c.fontStyle + '|' + Math.round(parseFloat(c.fontSize)) + '|' + c.fontFamily; };
+            const ref = key(n);
+            page.querySelectorAll('.sim-mark').forEach(o => o.classList.remove('sim-mark'));
+            if (!document.getElementById('simStyle')) {
+                const st = document.createElement('style'); st.id = 'simStyle';
+                st.textContent = '.sim-mark{background:rgba(43,87,154,.18)}';
+                document.head.appendChild(st);
+            }
+            let cnt = 0;
+            page.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,span,strong,em,b,i,u').forEach(el => {
+                if (el.textContent.trim() && key(el) === ref) { el.classList.add('sim-mark'); cnt++; }
+            });
+            toast(cnt + ' fragmente cu formatare similară (evidențiate)');
+        }
+        function selOpenSelectionPane() {
+            closeSelectMenu();
+            const body = document.getElementById('selPaneBody');
+            const objs = [...page.querySelectorAll('img, table, h1, h2, h3')];
+            body.innerHTML = objs.length ? '' : '<div style="color:#a19f9d;padding:6px">Niciun obiect/titlu</div>';
+            objs.forEach((o, i) => {
+                const el = document.createElement('div'); el.className = 'file-item';
+                const label = o.tagName === 'IMG' ? '🖼️ Imagine ' + (i + 1)
+                    : o.tagName === 'TABLE' ? '▦ Tabel'
+                        : '¶ ' + o.textContent.slice(0, 30);
+                el.textContent = label;
+                el.onclick = () => { o.scrollIntoView({ block: 'center' }); o.classList.add('obj-outline'); setTimeout(() => o.classList.remove('obj-outline'), 1200); };
+                body.appendChild(el);
+            });
+            document.getElementById('selPane').classList.add('open');
+        }
+        // închide meniurile pop la click în altă parte
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('#selectMenu') && !e.target.closest('#btnSelect')) closeSelectMenu();
+            if (!e.target.closest('#frSpecialMenu') && !e.target.closest('#frSpecialBtn')) document.getElementById('frSpecialMenu').classList.remove('open');
+        });
 
         // ── Open by path ──
         function openByPath() { document.getElementById('pathPopup').classList.add('open'); document.getElementById('pathInput').focus(); }
@@ -2188,10 +2708,11 @@ if (isset($_GET['action'])) {
             const h = document.getElementById(handleId), p = document.getElementById(popupId);
             let sx, sy, ox, oy, drag = false;
             h.addEventListener('mousedown', e => {
-                if (e.target.classList.contains('close-x')) return;
+                if (e.target.classList.contains('close-x') || e.target.classList.contains('x')) return;
                 drag = true; sx = e.clientX; sy = e.clientY;
                 const r = p.getBoundingClientRect(); ox = r.left; oy = r.top;
-                p.style.right = 'auto';
+                p.style.right = 'auto'; p.style.transform = 'none';
+                p.style.left = ox + 'px'; p.style.top = oy + 'px';
             });
             document.addEventListener('mousemove', e => {
                 if (!drag) return;
@@ -2438,14 +2959,16 @@ if (isset($_GET['action'])) {
 
         // ── Keyboard shortcuts ──
         document.addEventListener('keydown', e => {
-            // Esc inchide overlay-ul de deschidere (daca e deschis)
-            if (e.key === 'Escape' && document.getElementById('startOverlay').classList.contains('open')) {
-                e.preventDefault(); hideOverlay(); return;
+            // Esc inchide overlay-ul de deschidere sau dialogul Find&Replace
+            if (e.key === 'Escape') {
+                if (document.getElementById('startOverlay').classList.contains('open')) { e.preventDefault(); hideOverlay(); return; }
+                if (document.getElementById('frDialog').classList.contains('open')) { e.preventDefault(); closeFR(); return; }
             }
             if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveDocx(); }
             else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
             else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); doRedo(); }
-            else if (e.ctrlKey && e.key.toLowerCase() === 'h') { e.preventDefault(); toggleFind(); }
+            else if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); openFindReplace('find'); }
+            else if (e.ctrlKey && e.key.toLowerCase() === 'h') { e.preventDefault(); openFindReplace('replace'); }
             else if (e.altKey && e.key.toLowerCase() === 'p') { e.preventDefault(); repaginate(); }
             else if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); showOverlay(); }
             // Ctrl+PageDown / Ctrl+PageUp = navigare pagina cu pagina (ca „browse by page" din Word)
@@ -2463,7 +2986,8 @@ if (isset($_GET['action'])) {
 
         // ── Init ──
         buildDiac();
-        makeDraggable('findHandle', 'findPopup');
+        makeDraggable('frTitle', 'frDialog');
+        makeDraggable('selPaneHandle', 'selPane');
         makeDraggable('pathHandle', 'pathPopup');
         makeDraggable('diacHandle', 'diacPopup');
         setDocHtml('');   // o coala goala cu placeholder

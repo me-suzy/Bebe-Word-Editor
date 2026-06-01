@@ -338,36 +338,57 @@ if (isset($_GET['action'])) {
 
     if ($action === 'list') {
         global $ALLOWED_EXT;
-        $root = rtrim($ROOT, "/");
-        $subdir = isset($_GET['dir']) ? $_GET['dir'] : '';
-        $subdir = str_replace(["\\", ".."], ["/", ""], $subdir);
-        $subdir = trim($subdir, '/');
-        $scanPath = $subdir ? ($root . '/' . $subdir) : $root;
+        // path absolut (orice partiție/folder) sau ::drives (lista partițiilor); gol = $ROOT implicit
+        $path = isset($_GET['path']) ? $_GET['path'] : (isset($_GET['dir']) ? $_GET['dir'] : '');
+        $path = str_replace('\\', '/', $path);
+
+        // lista partițiilor (This PC)
+        if ($path === '::drives') {
+            $drives = [];
+            foreach (range('A', 'Z') as $L) {
+                if (@is_dir($L . ':/'))
+                    $drives[] = ['type' => 'dir', 'path' => $L . ':/', 'name' => $L . ':'];
+            }
+            echo json_encode(['ok' => true, 'mode' => 'drives', 'path' => '::drives', 'parent' => null, 'items' => $drives], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($path === '')
+            $path = rtrim($ROOT, '/');
+        $scanPath = $path;                       // ex: "E:/" sau "E:/Carte/BB"
         $out = [];
         if (is_dir($scanPath)) {
-            $items = scandir($scanPath);
-            foreach ($items as $f) {
+            $items = @scandir($scanPath);
+            if ($items) foreach ($items as $f) {
                 if ($f === '.' || $f === '..')
                     continue;
-                $full = $scanPath . '/' . $f;
-                $relPath = $subdir ? ($subdir . '/' . $f) : $f;
+                $full = rtrim($scanPath, '/') . '/' . $f;
                 if (is_dir($full)) {
-                    $out[] = ['type' => 'dir', 'path' => $relPath, 'name' => $f];
+                    $out[] = ['type' => 'dir', 'path' => $full, 'name' => $f];
                 } else {
                     $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
-                    if (in_array($ext, $ALLOWED_EXT)) {
-                        $out[] = ['type' => 'file', 'path' => $relPath, 'name' => $f, 'ext' => $ext];
-                    }
+                    if (in_array($ext, $ALLOWED_EXT))
+                        $out[] = ['type' => 'file', 'path' => $full, 'name' => $f, 'ext' => $ext];
                 }
             }
         }
-        // dirs first, then files, alphabetical
         usort($out, function ($a, $b) {
             if ($a['type'] !== $b['type'])
                 return $a['type'] === 'dir' ? -1 : 1;
             return strcasecmp($a['name'], $b['name']);
         });
-        echo json_encode(['ok' => true, 'root' => $root, 'items' => $out], JSON_UNESCAPED_UNICODE);
+        // calea „înapoi"
+        $norm = rtrim($scanPath, '/');
+        if (preg_match('#^[A-Za-z]:$#', $norm)) {
+            $parent = '::drives';               // suntem la rădăcina unei partiții → înapoi la lista de partiții
+        } else {
+            $parent = preg_replace('#/[^/]+$#', '', $norm);
+            if (preg_match('#^[A-Za-z]:$#', $parent))
+                $parent .= '/';                 // "E:" → "E:/"
+            if ($parent === '')
+                $parent = '::drives';
+        }
+        echo json_encode(['ok' => true, 'path' => $norm, 'parent' => $parent, 'items' => $out], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -667,6 +688,165 @@ if (isset($_GET['action'])) {
             background: #fff;
         }
 
+        /* ── Ribbon stil Word: Paste mare, butoane cu etichetă, split-button cu caret ── */
+        .clip-row {
+            display: flex;
+            align-items: stretch;
+            gap: 3px;
+        }
+
+        .rbtn-big {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1px;
+            min-width: 52px;
+            border: 1px solid transparent;
+            background: transparent;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 3px 6px;
+            color: #201f1e;
+        }
+
+        .rbtn-big:hover {
+            background: var(--btn-hover);
+            border-color: #c8c6c4;
+        }
+
+        .rbtn-big .big-ico {
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        .rbtn-big .big-lbl {
+            font-size: 11px;
+        }
+
+        .rbtn-big .caret {
+            font-size: 8px;
+            color: #605e5c;
+        }
+
+        .clip-col {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            justify-content: center;
+        }
+
+        .rbtn-lbl {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            border: 1px solid transparent;
+            background: transparent;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 7px 2px 4px;
+            font-size: 12px;
+            color: #201f1e;
+            white-space: nowrap;
+            text-align: left;
+        }
+
+        .rbtn-lbl:hover {
+            background: var(--btn-hover);
+            border-color: #c8c6c4;
+        }
+
+        .rbtn-lbl.active {
+            background: var(--accent-light);
+            border-color: #9db8de;
+        }
+
+        .rbtn-lbl .ei {
+            color: var(--accent);
+            width: 16px;
+            text-align: center;
+        }
+
+        .rbtn .caret {
+            font-size: 8px;
+            color: #605e5c;
+            margin-left: 1px;
+        }
+
+        /* split button: acțiune principală + caret separat, lipite vizual */
+        .rsplit {
+            display: inline-flex;
+            align-items: stretch;
+        }
+
+        .rsplit .rbtn {
+            border-radius: 3px 0 0 3px;
+            padding-right: 3px;
+        }
+
+        .rsplit .rcaret {
+            min-width: 14px;
+            padding: 0 2px;
+            border-radius: 0 3px 3px 0;
+            border-left: 1px solid transparent;
+        }
+
+        .rsplit:hover .rbtn,
+        .rsplit:hover .rcaret {
+            border-color: #c8c6c4;
+        }
+
+        .rgroup-label {
+            position: relative;
+        }
+
+        .rlaunch {
+            font-size: 9px;
+            color: #a19f9d;
+            margin-left: 4px;
+            cursor: pointer;
+        }
+
+        /* meniu pop generic (Change Case, Borders, Line spacing, etc.) */
+        .pop-menu {
+            position: fixed;
+            z-index: 1700;
+            background: #fff;
+            border: 1px solid #c8c6c4;
+            border-radius: 4px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, .22);
+            padding: 4px;
+            min-width: 180px;
+            user-select: none;
+        }
+
+        .pm-item {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 6px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .pm-item:hover {
+            background: var(--accent-light);
+        }
+
+        .pm-item .pmi {
+            width: 20px;
+            text-align: center;
+            color: var(--accent);
+        }
+
+        .pm-sep {
+            height: 1px;
+            background: #e1dfdd;
+            margin: 4px 2px;
+        }
+
         /* ── Main layout ── */
         .main {
             flex: 1;
@@ -693,6 +873,37 @@ if (isset($_GET['action'])) {
             color: #605e5c;
             text-transform: uppercase;
             letter-spacing: .5px;
+        }
+
+        .sb-toolbar {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 4px;
+        }
+
+        .sb-toolbar button {
+            flex: 1;
+            background: #fff;
+            border: 1px solid #c8c6c4;
+            border-radius: 4px;
+            padding: 4px 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .sb-toolbar button:hover {
+            background: var(--btn-hover);
+        }
+
+        .sb-path {
+            font-size: 11px;
+            color: #605e5c;
+            background: #eee;
+            border-radius: 4px;
+            padding: 3px 6px;
+            margin-bottom: 6px;
+            word-break: break-all;
+            display: none;
         }
 
         .file-item {
@@ -907,6 +1118,15 @@ if (isset($_GET['action'])) {
             padding: 2px 12px;
             display: flex;
             gap: 16px;
+        }
+
+        /* interfața (bara de sus, ribbon, status, sidebar) NU trebuie să intre în selecția de text din document */
+        .topbar,
+        .ribbon,
+        .statusbar,
+        .sidebar {
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         /* ── Tab bar ── */
@@ -1561,19 +1781,23 @@ if (isset($_GET['action'])) {
     <div class="ribbon" id="ribbon">
         <!-- Clipboard -->
         <div class="rgroup">
-            <div class="rgroup-row" style="max-width:150px">
-                <button class="rbtn" title="Lipește (Ctrl+V)" onclick="doPaste()">📋</button>
-                <button class="rbtn" title="Decupează (Ctrl+X)" onclick="cmd('cut')">✂️</button>
-                <button class="rbtn" title="Copiază (Ctrl+C)" onclick="cmd('copy')">⧉</button>
-                <button class="rbtn" id="btnPainter" title="Descriptor de formate: click pe text-sursă → click aici → selectează/click pe țintă" onclick="toggleFormatPainter()">🖌️ Format</button>
+            <div class="clip-row">
+                <button class="rbtn-big" title="Lipește (Ctrl+V)" onclick="doPaste()">
+                    <span class="big-ico">📋</span><span class="big-lbl">Paste</span><span class="caret">▾</span>
+                </button>
+                <div class="clip-col">
+                    <button class="rbtn-lbl" title="Decupează (Ctrl+X)" onclick="cmd('cut')"><span class="ei">✂</span> Cut</button>
+                    <button class="rbtn-lbl" title="Copiază (Ctrl+C)" onclick="cmd('copy')"><span class="ei">⧉</span> Copy</button>
+                    <button class="rbtn-lbl" id="btnPainter" title="Descriptor de formate: click pe sursă → click aici → selectează/click pe țintă" onclick="toggleFormatPainter()"><span class="ei">🖌️</span> Format Painter</button>
+                </div>
             </div>
-            <div class="rgroup-label">Clipboard</div>
+            <div class="rgroup-label">Clipboard <span class="rlaunch" title="(grup)">⤡</span></div>
         </div>
 
         <!-- Font -->
         <div class="rgroup">
-            <div class="rgroup-row" style="max-width:320px">
-                <select class="rsel" id="fontFamily" title="Font" onchange="setFont(this.value)" style="width:165px">
+            <div class="rgroup-row" style="max-width:360px">
+                <select class="rsel" id="fontFamily" title="Font" onchange="setFont(this.value)" style="width:160px">
                     <option value="Times New Roman">Times New Roman</option>
                     <option value="Arial">Arial</option>
                     <option value="Calibri">Calibri</option>
@@ -1598,47 +1822,62 @@ if (isset($_GET['action'])) {
                     <option>48</option>
                     <option>72</option>
                 </select>
-                <button class="rbtn" title="Mărește fontul" onclick="growFont(1)">A▲</button>
-                <button class="rbtn" title="Micșorează fontul" onclick="growFont(-1)">A▼</button>
-                <button class="rbtn" title="Schimbă registrul" onclick="changeCase()">Aa</button>
-                <button class="rbtn" title="Golește formatarea" onclick="cmd('removeFormat')">🧹</button>
-                <div class="rsep"></div>
+                <button class="rbtn" title="Mărește fontul" onclick="growFont(1)">A<sup style="font-size:8px">▲</sup></button>
+                <button class="rbtn" title="Micșorează fontul" onclick="growFont(-1)">A<sub style="font-size:8px">▼</sub></button>
+                <button class="rbtn" title="Schimbă registrul" onclick="changeCaseMenu(event)">Aa<span class="caret">▾</span></button>
+                <button class="rbtn" title="Golește toată formatarea" onclick="clearAllFormatting()"><span style="position:relative">A<span style="position:absolute;right:-4px;bottom:-2px;color:#c0392b;font-size:9px">✕</span></span></button>
+            </div>
+            <div class="rgroup-row" style="max-width:360px">
                 <button class="rbtn" id="b_bold" title="Aldin (Ctrl+B)" onclick="cmd('bold')"><b>B</b></button>
                 <button class="rbtn" id="b_italic" title="Cursiv (Ctrl+I)" onclick="cmd('italic')"><i>I</i></button>
                 <button class="rbtn" id="b_underline" title="Subliniat (Ctrl+U)" onclick="cmd('underline')"><u>U</u></button>
-                <button class="rbtn" id="b_strike" title="Tăiat" onclick="cmd('strikeThrough')"><s>S</s></button>
-                <button class="rbtn" title="Indice" onclick="cmd('subscript')">x₂</button>
-                <button class="rbtn" title="Exponent" onclick="cmd('superscript')">x²</button>
-                <label class="rbtn" title="Culoare evidențiere" style="position:relative">🖍️
-                    <input type="color" id="hiliteColor" value="#ffff00" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="setHilite(this.value)"></label>
-                <label class="rbtn" title="Culoare font" style="position:relative;font-weight:700;color:#c00">A
-                    <input type="color" id="foreColor" value="#cc0000" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="setColor(this.value)"></label>
+                <button class="rbtn" id="b_strike" title="Tăiat" onclick="cmd('strikeThrough')"><s>ab</s></button>
+                <button class="rbtn" title="Indice" onclick="cmd('subscript')">x<sub>2</sub></button>
+                <button class="rbtn" title="Exponent" onclick="cmd('superscript')">x<sup>2</sup></button>
+                <button class="rbtn" title="Efecte text" onclick="textEffectsMenu(event)"><span style="text-shadow:1px 1px 0 #9aa3b2">A</span><span class="caret">▾</span></button>
+                <span class="rsplit" title="Culoare evidențiere">
+                    <label class="rbtn" style="position:relative"><span style="border-bottom:3px solid #ffd400">🖍️</span>
+                        <input type="color" id="hiliteColor" value="#ffff00" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="setHilite(this.value)"></label>
+                    <button class="rbtn rcaret" title="Alege culoare evidențiere" onclick="document.getElementById('hiliteColor').click()"><span class="caret">▾</span></button>
+                </span>
+                <span class="rsplit" title="Culoare font">
+                    <label class="rbtn" style="position:relative;font-weight:700"><span style="border-bottom:3px solid #c00">A</span>
+                        <input type="color" id="foreColor" value="#cc0000" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="setColor(this.value)"></label>
+                    <button class="rbtn rcaret" title="Alege culoare font" onclick="document.getElementById('foreColor').click()"><span class="caret">▾</span></button>
+                </span>
             </div>
-            <div class="rgroup-label">Font</div>
+            <div class="rgroup-label">Font <span class="rlaunch" title="(grup)">⤡</span></div>
         </div>
 
         <!-- Paragraph -->
         <div class="rgroup">
-            <div class="rgroup-row" style="max-width:230px">
-                <button class="rbtn" title="Marcatori" onclick="cmd('insertUnorderedList')">• ≡</button>
-                <button class="rbtn" title="Numerotare" onclick="cmd('insertOrderedList')">1. ≡</button>
+            <div class="rgroup-row" style="max-width:300px">
+                <span class="rsplit">
+                    <button class="rbtn" title="Marcatori" onclick="cmd('insertUnorderedList')">•≡</button>
+                    <button class="rbtn rcaret" title="Stil marcatori" onclick="bulletsMenu(event)"><span class="caret">▾</span></button>
+                </span>
+                <span class="rsplit">
+                    <button class="rbtn" title="Numerotare" onclick="cmd('insertOrderedList')">1.≡</button>
+                    <button class="rbtn rcaret" title="Format numerotare" onclick="numberingMenu(event)"><span class="caret">▾</span></button>
+                </span>
+                <button class="rbtn" title="Listă pe mai multe niveluri" onclick="multilevelList()">⁞≡</button>
                 <button class="rbtn" title="Micșorează indentul" onclick="cmd('outdent')">⇤</button>
                 <button class="rbtn" title="Mărește indentul" onclick="cmd('indent')">⇥</button>
-                <button class="rbtn" id="btnMarks" title="Afișează marcaje de paragraf" onclick="toggleMarks()">¶</button>
-                <div class="rsep"></div>
-                <button class="rbtn" id="al_left" title="Aliniere stânga" onclick="cmd('justifyLeft')">⬅</button>
-                <button class="rbtn" id="al_center" title="Centrat" onclick="cmd('justifyCenter')">⬌</button>
-                <button class="rbtn" id="al_right" title="Aliniere dreapta" onclick="cmd('justifyRight')">➡</button>
-                <button class="rbtn" id="al_just" title="Stânga-dreapta" onclick="cmd('justifyFull')">☰</button>
-                <select class="rsel" title="Spațiere între rânduri" onchange="setLineHeight(this.value)" style="width:46px">
-                    <option value="">↕</option>
-                    <option value="1">1.0</option>
-                    <option value="1.15">1.15</option>
-                    <option value="1.5">1.5</option>
-                    <option value="2">2.0</option>
-                </select>
-                <label class="rbtn" title="Umbrire (fundal)" style="position:relative">🪣
-                    <input type="color" id="bgColor" value="#ffff99" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="cmd('backColor', this.value)"></label>
+                <button class="rbtn" title="Sortează alfabetic paragrafele selectate" onclick="sortParagraphs(event)">A↓Z</button>
+                <button class="rbtn" id="btnMarks" title="Afișează marcaje de paragraf (¶)" onclick="toggleMarks()">¶</button>
+            </div>
+            <div class="rgroup-row" style="max-width:300px">
+                <button class="rbtn" id="al_left" title="Aliniere stânga (Ctrl+L)" onclick="cmd('justifyLeft')">☰</button>
+                <button class="rbtn" id="al_center" title="Centrat (Ctrl+E)" onclick="cmd('justifyCenter')">≡</button>
+                <button class="rbtn" id="al_right" title="Aliniere dreapta (Ctrl+R)" onclick="cmd('justifyRight')">☰</button>
+                <button class="rbtn" id="al_just" title="Stânga-dreapta (Ctrl+J)" onclick="cmd('justifyFull')">▤</button>
+                <button class="rbtn" title="Spațiere între rânduri" onclick="lineSpacingMenu(event)">↕<span class="caret">▾</span></button>
+                <span class="rsplit" title="Umbrire (fundal)">
+                    <label class="rbtn" style="position:relative"><span style="border-bottom:3px solid #ffd400">🪣</span>
+                        <input type="color" id="bgColor" value="#ffff99" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="applyShading(this.value)"></label>
+                    <button class="rbtn rcaret" title="Alege culoare umbrire" onclick="document.getElementById('bgColor').click()"><span class="caret">▾</span></button>
+                </span>
+                <button class="rbtn" title="Borduri" onclick="bordersMenu(event)">▦<span class="caret">▾</span></button>
             </div>
             <div class="rgroup-label">Paragraf</div>
         </div>
@@ -1701,7 +1940,14 @@ if (isset($_GET['action'])) {
     <!-- MAIN -->
     <div class="main">
         <div class="sidebar" id="sidebar">
-            <h3>Documente (docx · doc · odt · pdf)</h3>
+            <div class="sb-toolbar">
+                <button onclick="loadFileList('::drives')" title="Toate partițiile (This PC)">💻 This PC</button>
+                <button onclick="loadFileList('')" title="Folder implicit">🏠</button>
+            </div>
+            <div id="sbPath" class="sb-path" title=""></div>
+            <h3 id="sbRecentHdr" style="display:none">Recente</h3>
+            <div id="sbRecent"></div>
+            <h3>Foldere &amp; fișiere</h3>
             <div id="fileList"></div>
         </div>
         <div class="canvas" id="canvas">
@@ -1870,6 +2116,35 @@ if (isset($_GET['action'])) {
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
                 <button onclick="document.getElementById('csOverlay').classList.remove('open')" style="background:transparent;border:1px solid #3a3f4f;color:#cdd3df;border-radius:6px;padding:8px 16px;cursor:pointer">Anulează</button>
                 <button onclick="saveCustomStyle()" style="background:#107c10;border:none;color:#fff;border-radius:6px;padding:8px 18px;cursor:pointer;font-weight:600">💾 Salvează stilul</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dialog: Inserează imagine (din computer sau din web) -->
+    <div class="overlay" id="imgOverlay" style="z-index:3500">
+        <div class="overlay-card" style="width:min(460px,92vw)">
+            <div class="overlay-title" style="font-size:19px">Inserează imagine</div>
+            <div class="overlay-sub">Alege o imagine de pe computer sau lipește un link de pe web.</div>
+            <div style="display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <button onclick="document.getElementById('imgFilePicker').click()"
+                        style="background:var(--accent);border:none;color:#fff;border-radius:6px;padding:10px 16px;cursor:pointer;font-weight:600;white-space:nowrap">🖼️ Din computer…</button>
+                    <span style="color:#9aa3b2;font-size:13px">(jpg, png, gif, webp…)</span>
+                    <input type="file" id="imgFilePicker" accept="image/*" style="display:none"
+                        onchange="if(this.files[0]) imgFromFile(this.files[0]); this.value='';">
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;color:#6b7280;font-size:12px">
+                    <span style="flex:1;height:1px;background:#3a3f4f"></span> sau din web <span style="flex:1;height:1px;background:#3a3f4f"></span>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="imgUrl" placeholder="https://exemplu.com/imagine.jpg"
+                        style="flex:1;background:#15161d;border:1px solid #3a3f4f;border-radius:6px;padding:9px 11px;color:#eee;font-size:14px"
+                        onkeydown="if(event.key==='Enter'){event.preventDefault();imgFromUrl();}">
+                    <button onclick="imgFromUrl()" style="background:#107c10;border:none;color:#fff;border-radius:6px;padding:0 16px;cursor:pointer;font-weight:600">Inserează</button>
+                </div>
+            </div>
+            <div style="text-align:right;margin-top:18px">
+                <button onclick="closeImgDialog()" style="background:transparent;border:1px solid #3a3f4f;color:#cdd3df;border-radius:6px;padding:8px 16px;cursor:pointer">Anulează</button>
             </div>
         </div>
     </div>
@@ -2117,40 +2392,64 @@ if (isset($_GET['action'])) {
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('hidden');
         }
-        async function loadFileList(dir = '') {
-            currentDir = dir;
+        async function loadFileList(path = '') {
+            currentDir = path;
             try {
-                const r = await fetch(api('action=list&dir=' + encodeURIComponent(dir)));
+                const r = await fetch(api('action=list&path=' + encodeURIComponent(path)));
                 const j = await r.json();
                 const box = document.getElementById('fileList');
                 box.innerHTML = '';
-                if (dir) {
+                // bara cu calea curentă
+                const pathBar = document.getElementById('sbPath');
+                if (j.mode === 'drives') { pathBar.style.display = 'block'; pathBar.textContent = '💻 This PC (partiții)'; }
+                else if (j.path) { pathBar.style.display = 'block'; pathBar.textContent = j.path; pathBar.title = j.path; }
+                else pathBar.style.display = 'none';
+                // „înapoi"
+                if (j.parent !== null && j.parent !== undefined && j.mode !== 'drives') {
                     const up = document.createElement('div');
                     up.className = 'file-item dir';
-                    up.innerHTML = '<span class="ico">📁</span>.. (înapoi)';
-                    const parent = dir.split('/').slice(0, -1).join('/');
-                    up.onclick = () => loadFileList(parent);
+                    up.innerHTML = '<span class="ico">⬆️</span>.. (înapoi)';
+                    up.onclick = () => loadFileList(j.parent);
                     box.appendChild(up);
                 }
                 (j.items || []).forEach(it => {
                     const el = document.createElement('div');
                     el.className = 'file-item' + (it.type === 'dir' ? ' dir' : '');
-                    const ico = it.type === 'dir' ? '📁'
-                        : it.ext === 'pdf' ? '📕'
-                            : it.ext === 'odt' ? '📘'
-                                : '📄';
+                    const isDrive = j.mode === 'drives';
+                    const ico = isDrive ? '💽'
+                        : it.type === 'dir' ? '📁'
+                            : it.ext === 'pdf' ? '📕'
+                                : it.ext === 'odt' ? '📘'
+                                    : '📄';
                     el.innerHTML = '<span class="ico">' + ico + '</span>' + escapeHtml(it.name);
-                    el.title = it.name;
+                    el.title = it.path || it.name;
                     if (it.type === 'dir') el.onclick = () => loadFileList(it.path);
                     else el.onclick = () => openFile(it.path, it.ext);
                     box.appendChild(el);
                 });
                 if (!j.items || !j.items.length) {
-                    box.innerHTML += '<div style="color:#a19f9d;padding:6px">(gol)</div>';
+                    box.innerHTML += '<div style="color:#a19f9d;padding:6px">(gol — niciun docx/odt/pdf sau subfolder)</div>';
                 }
             } catch (e) {
                 toast('Eroare listare: ' + e.message);
             }
+        }
+        // fișiere recente în sidebar (clic → deschide)
+        function renderSidebarRecent() {
+            const box = document.getElementById('sbRecent');
+            const hdr = document.getElementById('sbRecentHdr');
+            const items = (typeof allRecent === 'function') ? allRecent() : [];
+            box.innerHTML = '';
+            if (!items.length) { hdr.style.display = 'none'; return; }
+            hdr.style.display = 'block';
+            items.slice(0, 8).forEach(e => {
+                const ext = (e.ext || e.name.split('.').pop() || '').toLowerCase();
+                const ico = ext === 'pdf' ? '📕' : ext === 'odt' ? '📘' : '📄';
+                const el = document.createElement('div'); el.className = 'file-item'; el.title = e.path || e.name;
+                el.innerHTML = '<span class="ico">' + ico + '</span>' + escapeHtml(e.name);
+                el.onclick = () => e.path ? openFile(e.path, ext) : reopenDropped(e.name);
+                box.appendChild(el);
+            });
         }
 
         function escapeHtml(s) {
@@ -2409,18 +2708,177 @@ if (isset($_GET['action'])) {
             document.getElementById('fontSize').value = sizes[idx];
             setFontSize(sizes[idx]);
         }
-        function changeCase() {
+        // ── Meniu pop generic (Word-style dropdowns) ──
+        let openMenuEl = null;
+        function closeAllMenus() { if (openMenuEl) { openMenuEl.remove(); openMenuEl = null; } }
+        function showMenu(anchor, items) {
+            closeAllMenus();
+            const m = document.createElement('div'); m.className = 'pop-menu';
+            m.onmousedown = (e) => e.preventDefault();   // păstrează selecția din document
+            items.forEach(it => {
+                if (it === '-') { const s = document.createElement('div'); s.className = 'pm-sep'; m.appendChild(s); return; }
+                const el = document.createElement('div'); el.className = 'pm-item';
+                el.innerHTML = (it.ico ? '<span class="pmi">' + it.ico + '</span>' : '') + '<span>' + it.label + '</span>';
+                el.onclick = () => { closeAllMenus(); it.onclick(); };
+                m.appendChild(el);
+            });
+            document.body.appendChild(m);
+            const r = anchor.getBoundingClientRect();
+            m.style.left = Math.min(r.left, window.innerWidth - m.offsetWidth - 8) + 'px';
+            m.style.top = (r.bottom + 2) + 'px';
+            openMenuEl = m;
+        }
+
+        // ── Change Case (registru) ──
+        function changeCaseMenu(ev) {
+            ev.stopPropagation();
+            showMenu(ev.currentTarget, [
+                { label: 'Prima literă mare (propoziție)', onclick: () => applyCase('sentence') },
+                { label: 'litere mici', onclick: () => applyCase('lower') },
+                { label: 'MAJUSCULE', onclick: () => applyCase('upper') },
+                { label: 'Fiecare Cuvânt Cu Majusculă', onclick: () => applyCase('caps') },
+                { label: 'iNVERSEAZĂ rEGISTRUL', onclick: () => applyCase('toggle') }
+            ]);
+        }
+        function applyCase(type) {
             const sel = window.getSelection();
-            if (!sel.rangeCount) return;
-            const txt = sel.toString();
-            if (!txt) return;
-            const up = txt.toUpperCase();
-            const repl = (txt === up) ? txt.toLowerCase() : up;
-            runCmd(() => document.execCommand('insertText', false, repl));
+            if (!sel.rangeCount || !sel.toString()) { toast('Selectează textul'); return; }
+            let txt = sel.toString(), out;
+            if (type === 'lower') out = txt.toLowerCase();
+            else if (type === 'upper') out = txt.toUpperCase();
+            else if (type === 'caps') out = txt.toLowerCase().replace(/\b\p{L}/gu, c => c.toUpperCase());
+            else if (type === 'sentence') { out = txt.toLowerCase().replace(/(^\s*\p{L})|([.!?]\s+\p{L})/gu, c => c.toUpperCase()); }
+            else out = txt.split('').map(c => c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()).join('');
+            runCmd(() => document.execCommand('insertText', false, out));
+        }
+        function changeCase() { applyCase('upper'); }  // compatibilitate
+
+        // ── Golește toată formatarea (pe selecție sau paragraf) ──
+        function clearAllFormatting() {
+            const sel = window.getSelection();
+            page.focus();
+            recordUndo(); suppressSnap = true;
+            try {
+                document.execCommand('removeFormat');
+                document.execCommand('unlink');
+                // scoate clase de stil + inline styles din blocurile vizate
+                const blocks = (sel.rangeCount && !sel.getRangeAt(0).collapsed) ? blocksInRange(sel.getRangeAt(0)) : [getBlock()].filter(Boolean);
+                blocks.forEach(b => { b.className = (b.className || '').replace(/\bst-[\w-]+/g, '').trim(); FONT_PROPS.forEach(p => b.style.removeProperty(p)); b.style.removeProperty('background'); });
+            } finally { suppressSnap = false; }
+            refreshActive(); updateWordCount();
+        }
+
+        // ── Efecte text (umbră / contur / strălucire) ──
+        function textEffectsMenu(ev) {
+            ev.stopPropagation();
+            showMenu(ev.currentTarget, [
+                { label: 'Umbră', onclick: () => applyTextEffect('text-shadow:1px 1px 2px rgba(0,0,0,.45)') },
+                { label: 'Contur', onclick: () => applyTextEffect('-webkit-text-stroke:.6px #444;color:transparent') },
+                { label: 'Strălucire (glow)', onclick: () => applyTextEffect('text-shadow:0 0 5px #6ea8fe') },
+                { label: 'Relief (3D)', onclick: () => applyTextEffect('text-shadow:1px 1px 0 #fff,2px 2px 1px #999') },
+                '-',
+                { label: 'Fără efect', onclick: () => applyTextEffect('') }
+            ]);
+        }
+        function applyTextEffect(css) {
+            const sel = window.getSelection();
+            if (!sel.rangeCount || sel.getRangeAt(0).collapsed) { toast('Selectează textul'); return; }
+            recordUndo(); suppressSnap = true;
+            try {
+                const range = sel.getRangeAt(0); clampRangeToPage(range);
+                const span = document.createElement('span'); span.style.cssText = css;
+                try { range.surroundContents(span); } catch (e) { const f = range.extractContents(); span.appendChild(f); range.insertNode(span); }
+            } finally { suppressSnap = false; }
+            updateWordCount();
+        }
+
+        // ── Liste: stil marcatori / format numerotare / multinivel ──
+        function bulletsMenu(ev) {
+            ev.stopPropagation();
+            const set = (t) => { cmd('insertUnorderedList'); const l = nearestList('UL'); if (l) l.style.listStyleType = t; };
+            showMenu(ev.currentTarget, [
+                { label: '● Disc', onclick: () => set('disc') },
+                { label: '○ Cerc', onclick: () => set('circle') },
+                { label: '■ Pătrat', onclick: () => set('square') }
+            ]);
+        }
+        function numberingMenu(ev) {
+            ev.stopPropagation();
+            const set = (t) => { cmd('insertOrderedList'); const l = nearestList('OL'); if (l) l.style.listStyleType = t; };
+            showMenu(ev.currentTarget, [
+                { label: '1. 2. 3.', onclick: () => set('decimal') },
+                { label: 'a. b. c.', onclick: () => set('lower-alpha') },
+                { label: 'A. B. C.', onclick: () => set('upper-alpha') },
+                { label: 'i. ii. iii.', onclick: () => set('lower-roman') },
+                { label: 'I. II. III.', onclick: () => set('upper-roman') }
+            ]);
+        }
+        function nearestList(tag) {
+            let n = window.getSelection().rangeCount ? window.getSelection().getRangeAt(0).startContainer : null;
+            while (n && n !== page) { if (n.nodeType === 1 && n.tagName === tag) return n; n = n.parentNode; }
+            return null;
+        }
+        function multilevelList() {
+            cmd('insertOrderedList');
+            const l = nearestList('OL'); if (l) l.style.listStyleType = 'decimal';
+        }
+
+        // ── Sortează alfabetic paragrafele/elementele selectate ──
+        function sortParagraphs() {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) { toast('Selectează paragrafele de sortat'); return; }
+            const blocks = blocksInRange(sel.getRangeAt(0));
+            if (blocks.length < 2) { toast('Selectează cel puțin 2 paragrafe'); return; }
+            const parent = blocks[0].parentNode;
+            if (!blocks.every(b => b.parentNode === parent)) { toast('Paragrafele trebuie să fie în aceeași zonă'); return; }
+            recordUndo(); suppressSnap = true;
+            try {
+                const sorted = blocks.slice().sort((a, b) => a.textContent.trim().localeCompare(b.textContent.trim(), 'ro'));
+                const anchor = blocks[blocks.length - 1].nextSibling;
+                sorted.forEach(b => parent.insertBefore(b, anchor));
+            } finally { suppressSnap = false; }
+            updateWordCount(); toast(blocks.length + ' paragrafe sortate');
+        }
+
+        // ── Spațiere între rânduri ──
+        function lineSpacingMenu(ev) {
+            ev.stopPropagation();
+            showMenu(ev.currentTarget, ['1.0', '1.15', '1.5', '2.0', '2.5', '3.0'].map(v => ({ label: v, onclick: () => setLineHeight(v) })));
         }
         function setLineHeight(v) {
-            const block = getBlock();
-            if (block && v) { recordUndo(); block.style.lineHeight = v; }
+            const blocks = blocksInSelection();
+            if (!blocks.length || !v) return;
+            recordUndo(); suppressSnap = true;
+            try { blocks.forEach(b => b.style.lineHeight = v); } finally { suppressSnap = false; }
+            updateWordCount();
+        }
+
+        // ── Umbrire (fundal) pe selecție / paragraf ──
+        function applyShading(color) {
+            const sel = window.getSelection();
+            if (sel.rangeCount && !sel.getRangeAt(0).collapsed) { cmd('backColor', color); }
+            else { const b = getBlock(); if (b) { recordUndo(); b.style.backgroundColor = color; updateWordCount(); } }
+        }
+
+        // ── Borduri ──
+        function bordersMenu(ev) {
+            ev.stopPropagation();
+            const set = (css) => {
+                const blocks = blocksInSelection(); if (!blocks.length) return;
+                recordUndo(); suppressSnap = true;
+                try { blocks.forEach(b => { b.style.border = ''; b.style.borderTop = ''; b.style.borderBottom = ''; b.style.borderLeft = ''; b.style.borderRight = ''; if (css) Object.assign(b.style, css); if (css) b.style.padding = b.style.padding || '2px 4px'; }); }
+                finally { suppressSnap = false; }
+                updateWordCount();
+            };
+            const B = '1px solid #555';
+            showMenu(ev.currentTarget, [
+                { label: '▦ Toate bordurile', onclick: () => set({ border: B }) },
+                { label: '▭ Contur (exterior)', onclick: () => set({ border: B }) },
+                { label: '⎺ Bordură sus', onclick: () => set({ borderTop: B }) },
+                { label: '⎽ Bordură jos', onclick: () => set({ borderBottom: B }) },
+                '-',
+                { label: '▢ Fără borduri', onclick: () => set(null) }
+            ]);
         }
         function applyStyle(tag) {
             runCmd(() => document.execCommand('formatBlock', false, tag));
@@ -2782,9 +3240,35 @@ if (isset($_GET['action'])) {
             const url = prompt('URL link:', 'https://');
             if (url) cmd('createLink', url);
         }
+        // ── Inserare imagine: din computer (fișier local) sau din web (URL) ──
+        let imgSavedRange = null;
         function insertImage() {
-            const url = prompt('URL imagine:', 'https://');
-            if (url) cmd('insertImage', url);
+            const sel = window.getSelection();
+            imgSavedRange = (sel.rangeCount && page.contains(sel.getRangeAt(0).startContainer)) ? sel.getRangeAt(0).cloneRange() : null;
+            document.getElementById('imgUrl').value = '';
+            document.getElementById('imgOverlay').classList.add('open');
+            setTimeout(() => document.getElementById('imgUrl').focus(), 30);
+        }
+        function closeImgDialog() { document.getElementById('imgOverlay').classList.remove('open'); }
+        function imgFromFile(file) {
+            if (!file) return;
+            if (!/^image\//.test(file.type)) { toast('Alege un fișier imagine'); return; }
+            const fr = new FileReader();
+            fr.onload = () => insertImageSrc(fr.result);   // data URL (base64) → se salvează în docx
+            fr.readAsDataURL(file);
+        }
+        function imgFromUrl() {
+            const u = document.getElementById('imgUrl').value.trim();
+            if (!u) { toast('Scrie un URL'); return; }
+            insertImageSrc(u);
+        }
+        function insertImageSrc(src) {
+            closeImgDialog();
+            page.focus();
+            if (imgSavedRange) { const s = window.getSelection(); s.removeAllRanges(); s.addRange(imgSavedRange); imgSavedRange = null; }
+            const safe = src.replace(/"/g, '&quot;');
+            runCmd(() => document.execCommand('insertHTML', false, '<img src="' + safe + '" style="max-width:100%">'));
+            toast('Imagine inserată');
         }
         function insertTable() {
             const html = '<table border="1" style="border-collapse:collapse;width:100%">'
@@ -2846,6 +3330,18 @@ if (isset($_GET['action'])) {
             }
         }
         // selectionOnly=true → aplică pe textul selectat; false → pe tot paragraful
+        // limitează un range la interiorul zonei editabile (#pages), dacă a depășit (ex: bara de status)
+        function clampRangeToPage(range) {
+            if (!page.contains(range.endContainer)) {
+                const w = document.createTreeWalker(page, NodeFilter.SHOW_TEXT); let last = null, n;
+                while ((n = w.nextNode())) last = n;
+                if (last) range.setEnd(last, last.nodeValue.length);
+            }
+            if (!page.contains(range.startContainer)) {
+                const w = document.createTreeWalker(page, NodeFilter.SHOW_TEXT); const first = w.nextNode();
+                if (first) range.setStart(first, 0);
+            }
+        }
         function applyPainter(selectionOnly) {
             if (!painter) return false;
             const sel = window.getSelection();
@@ -2855,6 +3351,8 @@ if (isset($_GET['action'])) {
             if (!useSel) {
                 const blk = getBlock(); if (!blk) { disarmPainter(); return false; }
                 range = document.createRange(); range.selectNodeContents(blk);
+            } else {
+                clampRangeToPage(range);   // dacă selecția a depășit zona editabilă (ex: bara de jos), o limităm la document
             }
             recordUndo();   // Format Painter modifică direct DOM-ul → înregistrează pentru undo
             wrapRangeTextNodes(range);
@@ -3255,6 +3753,7 @@ if (isset($_GET['action'])) {
             if (!e.target.closest('#selectMenu') && !e.target.closest('#btnSelect')) closeSelectMenu();
             if (!e.target.closest('#frSpecialMenu') && !e.target.closest('#frSpecialBtn')) document.getElementById('frSpecialMenu').classList.remove('open');
             if (!e.target.closest('#styleGallery') && !e.target.closest('#styleBtn')) closeStyleGallery();
+            if (!e.target.closest('.pop-menu')) closeAllMenus();
         });
         // preview live în dialogul „Create a Style"
         ['csFont', 'csSize', 'csColor', 'csColorOn', 'csBold', 'csItalic', 'csUnderline'].forEach(id => {
@@ -3503,6 +4002,7 @@ if (isset($_GET['action'])) {
                 if (sessionDropped.length > MAX_RECENT) sessionDropped = sessionDropped.slice(0, MAX_RECENT);
             }
             renderRecent();
+            renderSidebarRecent();
         }
         // la închiderea unui tab → actualizează data (ordonare după închidere) și mută în vârf
         function touchRecentOnClose(tab) {
@@ -3551,6 +4051,7 @@ if (isset($_GET['action'])) {
             // Esc închide (fără modificări): galeria de stiluri / overlay deschidere / Find&Replace / dialog stil
             if (e.key === 'Escape') {
                 if (document.getElementById('styleGallery').classList.contains('open')) { e.preventDefault(); closeStyleGallery(); return; }
+                if (document.getElementById('imgOverlay').classList.contains('open')) { e.preventDefault(); closeImgDialog(); return; }
                 if (document.getElementById('csOverlay').classList.contains('open')) { e.preventDefault(); document.getElementById('csOverlay').classList.remove('open'); csEditTarget = null; document.getElementById('csTitle').textContent = 'Creează un stil nou'; return; }
                 if (document.getElementById('startOverlay').classList.contains('open')) { e.preventDefault(); hideOverlay(); return; }
                 if (document.getElementById('frDialog').classList.contains('open')) { e.preventDefault(); closeFR(); return; }
@@ -3615,6 +4116,7 @@ if (isset($_GET['action'])) {
         renderTabs();
         loadFileList('');
         renderRecent();
+        renderSidebarRecent();
         showOverlay();    // popup de deschidere la pornire (ca în index V.4.php)
     </script>
 </body>

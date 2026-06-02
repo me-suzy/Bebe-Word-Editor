@@ -336,6 +336,62 @@ if (isset($_GET['action'])) {
 
     header('Content-Type: application/json; charset=utf-8');
 
+    if ($action === 'autocorect_check' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true);
+        $words = isset($data['words']) && is_array($data['words']) ? $data['words'] : [];
+        $dictCandidates = [
+            __DIR__ . DIRECTORY_SEPARATOR . 'AutoCorect' . DIRECTORY_SEPARATOR . 'autocorect-words.txt',
+            __DIR__ . DIRECTORY_SEPARATOR . 'autocorect-words.txt',
+        ];
+        $dictFile = '';
+        foreach ($dictCandidates as $candidate) {
+            if (is_file($candidate)) { $dictFile = $candidate; break; }
+        }
+        if (!$words || !is_file($dictFile)) {
+            echo json_encode(['ok' => is_file($dictFile), 'found' => []], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $normWord = function ($w) {
+            $w = trim((string) $w);
+            $w = strtr($w, [
+                'Ş' => 'Ș', 'ş' => 'ș', 'Ţ' => 'Ț', 'ţ' => 'ț',
+                'Á' => 'A', 'á' => 'a', 'É' => 'E', 'é' => 'e',
+                'Í' => 'I', 'í' => 'i', 'Ó' => 'O', 'ó' => 'o',
+                'Ú' => 'U', 'ú' => 'u'
+            ]);
+            $w = mb_strtolower($w, 'UTF-8');
+            return preg_match('/^[a-zăâîșț]{2,40}$/u', $w) ? $w : '';
+        };
+
+        $wanted = [];
+        foreach ($words as $w) {
+            $n = $normWord($w);
+            if ($n !== '') $wanted[$n] = true;
+        }
+        if (!$wanted) {
+            echo json_encode(['ok' => true, 'found' => []], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $found = [];
+        $fh = @fopen($dictFile, 'rb');
+        if ($fh) {
+            while (($line = fgets($fh)) !== false) {
+                $line = trim($line);
+                if (isset($wanted[$line])) {
+                    $found[$line] = true;
+                    if (count($found) >= count($wanted)) break;
+                }
+            }
+            fclose($fh);
+        }
+
+        echo json_encode(['ok' => true, 'found' => array_keys($found)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'list') {
         global $ALLOWED_EXT;
         // path absolut (orice partiție/folder) sau ::drives (lista partițiilor); gol = $ROOT implicit
@@ -473,6 +529,57 @@ if (isset($_GET['action'])) {
 
     // Cauta calea reala pe disc a unui fisier dupa nume (+ dimensiune) — pentru drag&drop,
     // ca sa putem face overwrite pe fisierul original fara sa intrebam unde.
+    // Backup automat in folderul local Temp, fara sa modifice fisierul original.
+    if ($action === 'autobackup' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $tempDir = __DIR__ . DIRECTORY_SEPARATOR . 'Temp';
+        if (!is_dir($tempDir) && !@mkdir($tempDir, 0777, true)) {
+            echo json_encode(['ok' => false, 'error' => 'Nu pot crea folderul Temp']);
+            exit;
+        }
+
+        $name = isset($_POST['fileName']) ? (string) $_POST['fileName'] : 'document.docx';
+        $name = basename(str_replace('\\', '/', $name));
+        $base = pathinfo($name, PATHINFO_FILENAME);
+        $base = preg_replace('/[^\pL\pN._-]+/u', '_', $base);
+        $base = trim($base, '._-');
+        if ($base === '') $base = 'document';
+        if (mb_strlen($base, 'UTF-8') > 80) $base = mb_substr($base, 0, 80, 'UTF-8');
+        $stamp = date('Ymd_His');
+
+        $b64 = isset($_POST['content']) ? (string) $_POST['content'] : '';
+        $b64 = preg_replace('#^data:[^,]+,#', '', $b64);
+        if ($b64 !== '') {
+            $bytes = base64_decode($b64, true);
+            if ($bytes === false) {
+                echo json_encode(['ok' => false, 'error' => 'Backup invalid (base64)']);
+                exit;
+            }
+            $target = $tempDir . DIRECTORY_SEPARATOR . 'autosave_' . $stamp . '_' . $base . '.docx';
+            $ok = @file_put_contents($target, $bytes);
+            if ($ok === false) {
+                echo json_encode(['ok' => false, 'error' => 'Nu pot scrie backup-ul in Temp']);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'file' => $target, 'bytes' => strlen($bytes)], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        $html = isset($_POST['html']) ? (string) $_POST['html'] : '';
+        if ($html !== '') {
+            $target = $tempDir . DIRECTORY_SEPARATOR . 'autosave_' . $stamp . '_' . $base . '.html';
+            $ok = @file_put_contents($target, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>" . $html . "</body></html>");
+            if ($ok === false) {
+                echo json_encode(['ok' => false, 'error' => 'Nu pot scrie backup-ul HTML in Temp']);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'file' => $target, 'bytes' => strlen($html)], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        echo json_encode(['ok' => false, 'error' => 'Backup fara continut']);
+        exit;
+    }
+
     if ($action === 'findpath') {
         $name = basename(str_replace('\\', '/', isset($_GET['name']) ? $_GET['name'] : ''));
         $size = isset($_GET['size']) ? (int) $_GET['size'] : -1;
@@ -979,11 +1086,6 @@ if (isset($_GET['action'])) {
             font-size: 9pt;
             color: #b3b1ae;
             pointer-events: none;
-        }
-
-        .page.placeholder::before {
-            content: "Deschide un document (docx / odt / pdf) sau scrie aici…";
-            color: #a19f9d;
         }
 
         .page p {
@@ -1762,6 +1864,89 @@ if (isset($_GET['action'])) {
             background: #f3f3f3;
             color: #333;
         }
+
+        /* DEX — cuvinte greșite / fără diacritice (subliniere ondulată roșie) */
+        .dex-bad {
+            text-decoration: underline wavy #d13438;
+            text-decoration-skip-ink: none;
+            text-underline-offset: 2px;
+        }
+
+        #btnDex.active {
+            background: var(--accent-light);
+            border-color: #9db8de;
+        }
+
+        .dex-context-menu {
+            position: fixed;
+            display: none;
+            min-width: 230px;
+            max-width: min(320px, calc(100vw - 16px));
+            background: #fff;
+            color: #201f1e;
+            border: 1px solid #c8c6c4;
+            border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, .22);
+            z-index: 4500;
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        .dex-context-menu.open {
+            display: block;
+        }
+
+        .dex-context-head {
+            padding: 8px 11px;
+            border-bottom: 1px solid #edebe9;
+            color: #605e5c;
+            line-height: 1.35;
+        }
+
+        .dex-context-word {
+            color: #201f1e;
+            font-weight: 600;
+            word-break: break-word;
+        }
+
+        .dex-context-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 11px;
+            border: 0;
+            background: #fff;
+            color: #201f1e;
+            text-align: left;
+            cursor: pointer;
+            font: inherit;
+        }
+
+        .dex-context-menu button:hover:not(:disabled) {
+            background: #f3f2f1;
+        }
+
+        .dex-context-menu button:disabled {
+            color: #8a8886;
+            cursor: default;
+        }
+
+        .dex-context-input {
+            width: calc(100% - 22px);
+            margin: 8px 11px 6px;
+            padding: 7px 8px;
+            border: 1px solid #c8c6c4;
+            border-radius: 4px;
+            font: inherit;
+            box-sizing: border-box;
+        }
+
+        .dex-context-menu button.dex-danger {
+            color: #a4262c;
+        }
+
+        .dex-context-menu button.dex-danger:hover:not(:disabled) {
+            background: #fde7e9;
+        }
     </style>
 </head>
 
@@ -1775,6 +1960,7 @@ if (isset($_GET['action'])) {
         <button class="topbtn" onclick="showOverlay()" title="Deschide alt fisier">＋ Deschide</button>
         <button class="topbtn" onclick="closeActiveTab()" title="Inchide tab-ul curent">Inchide tab</button>
         <button class="topbtn primary" onclick="saveDocx()">💾 Salveaza (Ctrl+S)</button>
+        <button class="topbtn" onclick="closeApplication()" title="Iesire cu confirmare salvare">Iesire</button>
     </div>
 
     <!-- RIBBON (Word classic Home tab + extra din Mini Dreamweaver) -->
@@ -1913,6 +2099,7 @@ if (isset($_GET['action'])) {
                 <div class="rsep"></div>
                 <button class="rbtn" title="Diacritice românești" onclick="toggleDiac()" style="font-size:15px">Ă</button>
                 <button class="rbtn" title="Traducere (Google Translate)" onclick="openTranslate()">🌐</button>
+                <button class="rbtn" id="btnDex" title="DEX — verifică ortografia românească (online + AutoCorect local + dicționar personal)" onclick="toggleDex()" style="font-weight:700;color:#2b579a">DEX</button>
             </div>
             <div class="rgroup-label">Extra</div>
         </div>
@@ -2193,6 +2380,14 @@ if (isset($_GET['action'])) {
     </div>
 
     <div id="toast"></div>
+    <div class="dex-context-menu" id="dexContextMenu" role="menu" aria-hidden="true">
+        <div class="dex-context-head">DEX: <span class="dex-context-word" id="dexContextWord"></span></div>
+        <input type="text" id="dexEditWordInput" class="dex-context-input" oninput="refreshDexContextActions()" onkeydown="dexContextInputKey(event)" aria-label="Cuvant in dictionar">
+        <button type="button" id="dexAddWordBtn" onclick="addDexContextWord()">Adauga in dictionar</button>
+        <button type="button" id="dexEditWordBtn" onclick="editDexContextWord()" disabled>Editeaza in dictionar</button>
+        <button type="button" id="dexDeleteWordBtn" class="dex-danger" onclick="deleteDexContextWord()" disabled>Sterge din dictionar</button>
+        <button type="button" onclick="hideDexContextMenu()">Inchide</button>
+    </div>
 
     <!-- Libs: html-docx-js (html→docx la salvare), pdf.js (randare PDF). DOCX/ODT se convertesc server-side. -->
     <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></script>
@@ -2203,6 +2398,7 @@ if (isset($_GET['action'])) {
         let currentFile = null;    // cale absoluta a fisierului deschis
         let currentExt = null;
         let currentDir = '';       // subdir relativ in sidebar
+        let appCloseApproved = false;
         const page = document.getElementById('pages');   // wrapper editabil ce contine coli A4
         const canvasEl = document.getElementById('canvas');
 
@@ -2285,7 +2481,8 @@ if (isset($_GET['action'])) {
                 blocks.push(n);
             });
             if (!blocks.length) {
-                const s = makeSheet(); s.classList.add('placeholder'); page.appendChild(s);
+                // pagină goală cu un paragraf gol → se poate scrie direct (fără text-placeholder)
+                const s = makeSheet(); s.innerHTML = '<p><br></p>'; page.appendChild(s);
                 numberInfo(); updateWordCount(); return;
             }
 
@@ -2338,8 +2535,10 @@ if (isset($_GET['action'])) {
 
         function getDocHtml() {
             const sheets = page.querySelectorAll('.page');
-            if (!sheets.length) return page.innerHTML;
-            return Array.from(sheets).map(s => s.innerHTML).join('\n');
+            let html = sheets.length ? Array.from(sheets).map(s => s.innerHTML).join('\n') : page.innerHTML;
+            // scoate sublinierile DEX (sunt doar marcaje vizuale, nu fac parte din document)
+            if (html.indexOf('dex-bad') !== -1) html = html.replace(/<span class="dex-bad">([\s\S]*?)<\/span>/g, '$1');
+            return html;
         }
 
         function repaginate() {
@@ -2467,6 +2666,7 @@ if (isset($_GET['action'])) {
             // daca fisierul e deja deschis intr-un tab → doar comuta
             const existing = tabs.find(t => t.path === path || t.file === path);
             if (existing) { activateTab(existing.id); return; }
+            syncActiveTab();
             setInfo('Se încarcă…');
             hideOverlay();
             try {
@@ -2494,6 +2694,7 @@ if (isset($_GET['action'])) {
         //  handle = FileSystemFileHandle (dacă browserul îl oferă) → permite salvare/overwrite direct pe disc
         async function openDroppedFile(file, handle) {
             const ext = (file.name.split('.').pop() || '').toLowerCase();
+            syncActiveTab();
             setInfo('Se încarcă…'); hideOverlay();
             // atașează handle-ul pe tab-ul rezultat (doar pentru docx — scriem docx peste docx)
             const attach = () => { const t = curTab(); if (t && handle && ext === 'docx') t.handle = handle; };
@@ -3397,7 +3598,12 @@ if (isset($_GET['action'])) {
             const w = txt ? txt.split(/\s+/).length : 0;
             document.getElementById('stWords').textContent = w + ' cuvinte';
         }
-        page.addEventListener('input', updateWordCount);
+        page.addEventListener('input', () => {
+            appCloseApproved = false;
+            updateWordCount();
+            refreshActive();
+            scheduleAutoBackup();
+        });
         page.addEventListener('keyup', refreshActive);
 
         // ── Format Painter: detectează click vs tragere (select) ──
@@ -3444,14 +3650,17 @@ if (isset($_GET['action'])) {
             if ((await handle.queryPermission(opts)) === 'granted') return true;
             return (await handle.requestPermission(opts)) === 'granted';
         }
-        async function saveDocx() {
-            const t = curTab();
-            const inner = getDocHtml();
+        function makeDocxBlob(inner) {
             const full = '<!DOCTYPE html><html><head><meta charset="utf-8">'
                 + '<style>body{font-family:"Times New Roman",serif;font-size:12pt}</style></head><body>'
                 + inner + '</body></html>';
-            if (typeof htmlDocx === 'undefined') { toast('html-docx-js neîncărcat'); return false; }
-            const blob = htmlDocx.asBlob(full);
+            return (typeof htmlDocx === 'undefined') ? null : htmlDocx.asBlob(full);
+        }
+        async function saveDocx() {
+            const t = curTab();
+            const inner = getDocHtml();
+            const blob = makeDocxBlob(inner);
+            if (!blob) { toast('html-docx-js neîncărcat'); return false; }
 
             // 1) cale cunoscută pe disc (sidebar / cale / drag&drop rezolvat) → overwrite tăcut prin server (fără prompt de permisiune)
             if (currentFile) {
@@ -3753,6 +3962,7 @@ if (isset($_GET['action'])) {
             if (!e.target.closest('#selectMenu') && !e.target.closest('#btnSelect')) closeSelectMenu();
             if (!e.target.closest('#frSpecialMenu') && !e.target.closest('#frSpecialBtn')) document.getElementById('frSpecialMenu').classList.remove('open');
             if (!e.target.closest('#styleGallery') && !e.target.closest('#styleBtn')) closeStyleGallery();
+            if (!e.target.closest('#dexContextMenu')) hideDexContextMenu();
             if (!e.target.closest('.pop-menu')) closeAllMenus();
         });
         // preview live în dialogul „Create a Style"
@@ -3777,6 +3987,379 @@ if (isset($_GET['action'])) {
             const q = sel ? encodeURIComponent(sel) : '';
             window.open('https://translate.google.com/?sl=auto&tl=ro&text=' + q + '&op=translate', '_blank');
         }
+
+        // ── DEX: verificare ortografică românească (dicționar extern + AutoCorect local + cuvinte personale) ──
+        let dexOn = false, dexNspell = null, dexLoading = false, dexContextWord = '', dexAutoAvailable = null;
+        const dexAutoKnown = new Set(), dexAutoMiss = new Set();
+        const DEX_USER_KEY = 'wordEditor.dexUserWords.v2';
+        const DEX_OLD_USER_KEYS = ['wordEditor.dexUserWords.v1'];
+        const DEX_NSPELL = 'https://cdn.jsdelivr.net/npm/nspell/+esm';
+        const DEX_SOURCES = [
+            {
+                label: 'Rospell / Firefox (dictionary-ro 3.0.0, 181k+ intrari)',
+                aff: 'https://cdn.jsdelivr.net/npm/dictionary-ro@3.0.0/index.aff',
+                dic: 'https://cdn.jsdelivr.net/npm/dictionary-ro@3.0.0/index.dic'
+            },
+            {
+                label: 'LibreOffice ro_RO (fallback)',
+                aff: 'https://cdn.jsdelivr.net/gh/LibreOffice/dictionaries@master/ro/ro_RO.aff',
+                dic: 'https://cdn.jsdelivr.net/gh/LibreOffice/dictionaries@master/ro/ro_RO.dic'
+            }
+        ];
+        const DEX_WORD_RE = /[A-Za-zĂÂÎȘȚăâîșțŞşŢţ]{2,}/g;
+        const DEX_WORD_ONLY_RE = /^[A-Za-zĂÂÎȘȚăâîșțŞşŢţ]{2,}$/;
+        const DEX_WORD_CHAR_RE = /[A-Za-zĂÂÎȘȚăâîșțŞşŢţ]/;
+        let dexUserWords = loadDexUserWords();
+        async function fetchDexText(url) {
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status);
+            return r.text();
+        }
+        async function loadDexDict() {
+            if (dexNspell) return true;
+            try {
+                const mod = await import(DEX_NSPELL);
+                const nspell = mod.default || mod;
+                let lastError = null;
+                for (const source of DEX_SOURCES) {
+                    try {
+                        const [aff, dic] = await Promise.all([
+                            fetchDexText(source.aff),
+                            fetchDexText(source.dic)
+                        ]);
+                        dexNspell = nspell(aff, dic);
+                        console.info('DEX dictionary loaded:', source.label);
+                        return true;
+                    } catch (e) {
+                        lastError = e;
+                        console.warn('DEX source failed:', source.label, e);
+                    }
+                }
+                throw lastError || new Error('No DEX source loaded');
+            } catch (e) { console.error('DEX load:', e); return false; }
+        }
+        async function toggleDex() {
+            const btn = document.getElementById('btnDex');
+            if (dexOn) { clearDex(); dexOn = false; btn.classList.remove('active'); setInfo('DEX oprit'); return; }
+            if (dexLoading) return;
+            dexLoading = true; setInfo('DEX: se încarcă dicționarul român…'); toast('DEX: se încarcă dicționarul (o singură dată)…', 4000);
+            const ok = await loadDexDict();
+            dexLoading = false;
+            const stats = await runDexCheck();
+            if (!ok && !stats.localOk) {
+                clearDex();
+                page.setAttribute('lang', 'ro'); page.spellcheck = true;
+                dexOn = true; btn.classList.add('active');
+                toast('Nu pot încărca dicționarele — am activat verificarea din browser (RO)');
+                return;
+            }
+            dexOn = true; btn.classList.add('active');
+        }
+        function isAllCaps(w) { return w === w.toUpperCase() && w.length > 1; }
+        function hasDiacritics(w) { return /[ăâîșțĂÂÎȘȚşţŞŢ]/.test(w); }
+        // cuvinte uzuale CORECTE fără diacritice (au homograf cu diacritice, dar sunt valide ca atare)
+        // → nu le marcăm, ca să nu facem zgomot pe text corect
+        const DEX_OK = new Set(('ca sau ta tale mai care tare sa mea meu mei mele sale noi voi lor cu un una unu unei unui ' +
+            'de pe la o nu da dar prin spre din este sunt era erau are avea vor va vom poate mult multe mare mari bine tot ' +
+            'toate cum unde deci doar ori sub ce cine ne le te se ma ii mi ti ale al ai va ca-i sa-i').split(' '));
+        const DEX_PLAIN_OK = new Set(('muzica mintea putea sinelui impui deschizi').split(' '));
+        // normalizează diacriticele vechi cu cedilă (ş ţ) la cele moderne cu virgulă (ș ț),
+        // ca dicționarul (care folosește virgula) să recunoască ambele variante ca valide
+        function dexNorm(w) {
+            return w.replace(/ş/g, 'ș').replace(/Ş/g, 'Ș')  // ş→ș, Ş→Ș
+                .replace(/ţ/g, 'ț').replace(/Ţ/g, 'Ț');     // ţ→ț, Ţ→Ț
+        }
+        function dexWordKey(w) {
+            return dexNorm(String(w || '').trim()).toLowerCase();
+        }
+        function loadDexUserWords() {
+            try {
+                const merged = [];
+                [DEX_USER_KEY, ...DEX_OLD_USER_KEYS].forEach((key, idx) => {
+                    const words = JSON.parse(localStorage.getItem(key)) || [];
+                    words.forEach(w => {
+                        const normalized = dexWordKey(w);
+                        if (idx > 0 && normalized === 'buniica') return;
+                        merged.push(normalized);
+                    });
+                });
+                const set = new Set(merged.filter(w => DEX_WORD_ONLY_RE.test(w)));
+                if (!localStorage.getItem(DEX_USER_KEY) && set.size) {
+                    localStorage.setItem(DEX_USER_KEY, JSON.stringify([...set].sort()));
+                }
+                return set;
+            } catch (e) { return new Set(); }
+        }
+        function saveDexUserWords() {
+            localStorage.setItem(DEX_USER_KEY, JSON.stringify([...dexUserWords].sort()));
+        }
+        function isDexUserWord(w) {
+            return dexUserWords.has(dexWordKey(w));
+        }
+        function isDexAutoWord(w) {
+            return dexAutoKnown.has(dexWordKey(w));
+        }
+        function isDexExternalWord(w) {
+            return !!(dexNspell && dexNspell.correct(dexNorm(String(w || ''))));
+        }
+        function isKnownDictionaryWord(w) {
+            return isDexExternalWord(w) || isDexAutoWord(w);
+        }
+        function isKnownDexWord(w) {
+            return isDexUserWord(w) || isKnownDictionaryWord(w);
+        }
+        function isTrustedPlainDexWord(w) {
+            const key = dexWordKey(w);
+            return DEX_OK.has(key) || DEX_PLAIN_OK.has(key) || isDexUserWord(key) || isDexExternalWord(key);
+        }
+        async function checkDexAutoWords(words) {
+            const todo = [];
+            const seen = new Set();
+            words.forEach(w => {
+                const key = dexWordKey(w);
+                if (!DEX_WORD_ONLY_RE.test(key) || dexAutoKnown.has(key) || dexAutoMiss.has(key) || seen.has(key)) return;
+                seen.add(key); todo.push(key);
+            });
+            if (!todo.length) return dexAutoAvailable !== false;
+            try {
+                const r = await fetch(api('action=autocorect_check'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ words: todo })
+                });
+                const j = await r.json();
+                if (!j.ok) { dexAutoAvailable = false; return false; }
+                const found = new Set((j.found || []).map(dexWordKey));
+                todo.forEach(w => (found.has(w) ? dexAutoKnown : dexAutoMiss).add(w));
+                dexAutoAvailable = true;
+                return true;
+            } catch (e) {
+                console.warn('DEX AutoCorect check:', e);
+                dexAutoAvailable = false;
+                return false;
+            }
+        }
+        function addDexUserWord(word) {
+            const key = dexWordKey(word);
+            if (!DEX_WORD_ONLY_RE.test(key)) { hideDexContextMenu(); return; }
+            const existed = dexUserWords.has(key);
+            dexUserWords.add(key);
+            saveDexUserWords();
+            hideDexContextMenu();
+            if (dexOn) runDexCheck();
+            toast(existed ? ('Deja in dictionar: ' + word) : ('Adaugat in dictionar: ' + word));
+        }
+        function removeDexUserWord(word) {
+            const key = dexWordKey(word);
+            if (!dexUserWords.has(key)) { toast('Cuvantul nu este in dictionarul personal: ' + word); refreshDexContextActions(); return; }
+            dexUserWords.delete(key);
+            saveDexUserWords();
+            hideDexContextMenu();
+            if (dexOn) runDexCheck();
+            toast('Sters din dictionar: ' + word);
+        }
+        function renameDexUserWord(oldWord, newWord) {
+            const oldKey = dexWordKey(oldWord);
+            const newKey = dexWordKey(newWord);
+            if (!dexUserWords.has(oldKey)) { toast('Cuvantul nu este in dictionarul personal: ' + oldWord); refreshDexContextActions(); return; }
+            if (!DEX_WORD_ONLY_RE.test(newKey)) { toast('Cuvant invalid: ' + newWord); refreshDexContextActions(); return; }
+            if (oldKey === newKey) { hideDexContextMenu(); toast('Nicio modificare in dictionar'); return; }
+            if (dexUserWords.has(newKey)) { toast('Exista deja in dictionar: ' + newWord); refreshDexContextActions(); return; }
+            dexUserWords.delete(oldKey);
+            dexUserWords.add(newKey);
+            saveDexUserWords();
+            hideDexContextMenu();
+            if (dexOn) runDexCheck();
+            toast('Editat in dictionar: ' + oldWord + ' -> ' + newWord);
+        }
+        const DEX_DIAC_OPTS = { a: ['ă', 'â'], i: ['î'], s: ['ș'], t: ['ț'] };
+        // un cuvânt fără diacritice e „suspect" dacă o variantă CU diacritice e cuvânt valid (ex: viata→viață)
+        function dexDiacriticCandidates(w) {
+            const idxs = []; for (let i = 0; i < w.length; i++) if (DEX_DIAC_OPTS[w[i]]) idxs.push(i);
+            if (!idxs.length || idxs.length > 5) return [];
+            const opts = idxs.map(i => [w[i], ...DEX_DIAC_OPTS[w[i]]]);
+            let total = 1; for (const o of opts) total *= o.length;
+            if (total > 48) return [];
+            const out = [];
+            for (let mask = 1; mask < total; mask++) {
+                let m = mask; const chars = w.split('');
+                for (let k = 0; k < idxs.length; k++) { const o = opts[k]; const c = m % o.length; m = (m / o.length) | 0; if (c) chars[idxs[k]] = o[c]; }
+                out.push(chars.join(''));
+            }
+            return out;
+        }
+        function missingDiacritics(w) {
+            const candidates = dexDiacriticCandidates(w);
+            if (!candidates.length) return false;
+            if (isTrustedPlainDexWord(w)) return false;
+            for (const candidate of candidates)
+                if (isKnownDictionaryWord(candidate)) return true;
+            return false;
+        }
+        async function runDexCheck() {
+            clearDex();
+            const re = DEX_WORD_RE;
+            const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+            const nodes = []; let n;
+            while ((n = walker.nextNode())) { if (n.parentElement && n.parentElement.classList.contains('dex-bad')) continue; nodes.push(n); }
+            const nodeMatches = [], autoQueries = [];
+            for (const node of nodes) {
+                const text = node.nodeValue;
+                re.lastIndex = 0;
+                const matches = []; let m;
+                while ((m = re.exec(text))) {
+                    const word = m[0], lw = dexWordKey(word);
+                    matches.push([m.index, word]);
+                    autoQueries.push(lw);
+                    if (!isAllCaps(word) && !hasDiacritics(word) && !DEX_OK.has(lw))
+                        dexDiacriticCandidates(lw).forEach(c => autoQueries.push(c));
+                }
+                if (matches.length) nodeMatches.push({ node, text, matches });
+            }
+            const localOk = await checkDexAutoWords(autoQueries);
+            let total = 0, bad = 0;
+            for (const item of nodeMatches) {
+                const { node, text, matches } = item;
+                const frag = document.createDocumentFragment();
+                let pos = 0;
+                for (const [idx, word] of matches) {
+                    if (idx > pos) frag.appendChild(document.createTextNode(text.slice(pos, idx)));
+                    total++;
+                    let flag = false;
+                    const lw = dexWordKey(word);
+                    if (!isDexUserWord(word) && !isAllCaps(word) && !DEX_OK.has(lw)) {
+                        if (!hasDiacritics(word) && missingDiacritics(lw)) flag = true;
+                        else if (!isKnownDictionaryWord(word)) flag = true;
+                    }
+                    if (!flag) frag.appendChild(document.createTextNode(word));
+                    else { const sp = document.createElement('span'); sp.className = 'dex-bad'; sp.textContent = word; frag.appendChild(sp); bad++; }
+                    pos = idx + word.length;
+                }
+                if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+                node.parentNode.replaceChild(frag, node);
+            }
+            setInfo('DEX: ' + bad + ' probleme ortografice (din ' + total + ')');
+            toast(bad ? (bad + ' probleme ortografice subliniate') : 'Nicio problemă ortografică găsită');
+            // sari la primul cuvânt suspect
+            const first = page.querySelector('span.dex-bad');
+            if (first) first.scrollIntoView({ block: 'center' });
+            return { total, bad, localOk };
+        }
+        function clearDex() {
+            page.querySelectorAll('span.dex-bad').forEach(sp => { sp.replaceWith(document.createTextNode(sp.textContent)); });
+            page.normalize();
+            page.removeAttribute('lang'); page.spellcheck = false;
+        }
+        function dexWordFromPoint(x, y, target) {
+            const bad = target && target.closest ? target.closest('span.dex-bad') : null;
+            if (bad && page.contains(bad)) return bad.textContent.trim();
+
+            let range = null;
+            if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(x, y);
+            else if (document.caretPositionFromPoint) {
+                const pos = document.caretPositionFromPoint(x, y);
+                if (pos) {
+                    range = document.createRange();
+                    range.setStart(pos.offsetNode, pos.offset);
+                }
+            }
+            if (!range || !range.startContainer || range.startContainer.nodeType !== Node.TEXT_NODE || !page.contains(range.startContainer)) return '';
+            const text = range.startContainer.nodeValue || '';
+            let off = Math.min(range.startOffset, text.length - 1);
+            if (off > 0 && !DEX_WORD_CHAR_RE.test(text.charAt(off)) && DEX_WORD_CHAR_RE.test(text.charAt(off - 1))) off--;
+            if (!DEX_WORD_CHAR_RE.test(text.charAt(off))) return '';
+            let start = off, end = off + 1;
+            while (start > 0 && DEX_WORD_CHAR_RE.test(text.charAt(start - 1))) start--;
+            while (end < text.length && DEX_WORD_CHAR_RE.test(text.charAt(end))) end++;
+            const word = text.slice(start, end);
+            return DEX_WORD_ONLY_RE.test(word) ? word : '';
+        }
+        function showDexContextMenu(x, y, word) {
+            const menu = document.getElementById('dexContextMenu');
+            const wordEl = document.getElementById('dexContextWord');
+            const input = document.getElementById('dexEditWordInput');
+            if (!menu || !wordEl || !input) return;
+            dexContextWord = word;
+            menu.dataset.word = word;
+            wordEl.textContent = word;
+            input.value = word;
+            refreshDexContextActions();
+            menu.setAttribute('aria-hidden', 'false');
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+            menu.classList.add('open');
+            requestAnimationFrame(() => {
+                const r = menu.getBoundingClientRect();
+                const left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8));
+                const top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8));
+                menu.style.left = left + 'px';
+                menu.style.top = top + 'px';
+            });
+        }
+        function hideDexContextMenu() {
+            const menu = document.getElementById('dexContextMenu');
+            if (!menu) return;
+            menu.classList.remove('open');
+            menu.setAttribute('aria-hidden', 'true');
+        }
+        function getDexContextInputWord() {
+            const input = document.getElementById('dexEditWordInput');
+            return input ? input.value.trim() : dexContextWord;
+        }
+        function getDexContextWord() {
+            const menu = document.getElementById('dexContextMenu');
+            return (menu && menu.dataset.word) || dexContextWord;
+        }
+        function refreshDexContextActions() {
+            const addBtn = document.getElementById('dexAddWordBtn');
+            const editBtn = document.getElementById('dexEditWordBtn');
+            const deleteBtn = document.getElementById('dexDeleteWordBtn');
+            const input = document.getElementById('dexEditWordInput');
+            if (!addBtn || !editBtn || !deleteBtn || !input) return;
+            const oldKey = dexWordKey(getDexContextWord());
+            const newKey = dexWordKey(input.value);
+            const selectedIsUserWord = dexUserWords.has(oldKey);
+            const inputIsValid = DEX_WORD_ONLY_RE.test(newKey);
+            const inputAlreadyExists = dexUserWords.has(newKey);
+            addBtn.textContent = inputAlreadyExists ? 'Cuvantul este deja in dictionar' : 'Adauga in dictionar';
+            addBtn.disabled = !inputIsValid || inputAlreadyExists;
+            editBtn.textContent = selectedIsUserWord ? 'Salveaza editarea' : 'Editeaza (doar cuvant personal)';
+            editBtn.disabled = !selectedIsUserWord || !inputIsValid || oldKey === newKey || inputAlreadyExists;
+            deleteBtn.disabled = !selectedIsUserWord;
+        }
+        function dexContextInputKey(e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const oldKey = dexWordKey(getDexContextWord());
+            const newKey = dexWordKey(getDexContextInputWord());
+            if (dexUserWords.has(oldKey) && oldKey !== newKey) editDexContextWord();
+            else addDexContextWord();
+        }
+        function addDexContextWord() {
+            const word = getDexContextInputWord();
+            if (word) addDexUserWord(word);
+        }
+        function editDexContextWord() {
+            const word = getDexContextInputWord();
+            if (word) renameDexUserWord(getDexContextWord(), word);
+        }
+        function deleteDexContextWord() {
+            const word = getDexContextWord();
+            if (word) removeDexUserWord(word);
+        }
+        function openDexContextFromEvent(e) {
+            const word = dexWordFromPoint(e.clientX, e.clientY, e.target);
+            if (!word) return false;
+            e.preventDefault();
+            showDexContextMenu(e.clientX, e.clientY, word);
+            return true;
+        }
+        page.addEventListener('contextmenu', e => {
+            openDexContextFromEvent(e);
+        });
+        page.addEventListener('mouseup', e => {
+            if (e.button === 2) openDexContextFromEvent(e);
+        });
 
         // ── Diacritice ──
         const DIAC = ['ă', 'â', 'î', 'ș', 'ț', 'Ă', 'Â', 'Î', 'Ș', 'Ț', '„', '”', '«', '»', '–', '—', '…'];
@@ -3829,6 +4412,112 @@ if (isset($_GET['action'])) {
             const cur = (t.id === activeId) ? getDocHtml() : t.html;
             return cur !== t.savedHtml;
         }
+        function syncActiveTab() {
+            const cur = tabs.find(t => t.id === activeId);
+            if (cur) cur.html = getDocHtml();
+            return cur;
+        }
+        function isEmptyDocHtml(html) {
+            const compact = String(html || '').replace(/\s+/g, '').toLowerCase();
+            return compact === '' || compact === '<p><br></p>' || compact === '<br>';
+        }
+        function hasUntabbedDirtyDoc() {
+            return !activeId && isEmptyDocHtml(getDocHtml()) === false;
+        }
+        function hasUnsavedChanges() {
+            syncActiveTab();
+            return tabs.some(t => isTabDirty(t)) || hasUntabbedDirtyDoc();
+        }
+        const AUTO_BACKUP_INTERVAL_MS = 120000; // 2 minute
+        const AUTO_BACKUP_FIRST_DELAY_MS = 12000; // primul backup dupa editare apare repede
+        let autoBackupBusy = false;
+        let autoBackupTimer = null;
+        const autoBackupHashes = new Map();
+        function autoBackupHash(html) {
+            let h = 2166136261;
+            const s = String(html || '');
+            for (let i = 0; i < s.length; i++) {
+                h ^= s.charCodeAt(i);
+                h = Math.imul(h, 16777619);
+            }
+            return s.length + ':' + (h >>> 0).toString(16);
+        }
+        function autoBackupBaseName(name) {
+            const raw = String(name || '').split(/[\\/]/).pop() || 'document nou.docx';
+            return raw.replace(/\.(docx|doc|odt|pdf|html?)$/i, '') + '.docx';
+        }
+        function autoBackupEntries() {
+            syncActiveTab();
+            const out = [];
+            tabs.forEach(t => {
+                const html = (t.id === activeId) ? getDocHtml() : (t.html || '');
+                if (!isTabDirty(t) || isEmptyDocHtml(html)) return;
+                out.push({
+                    key: 'tab-' + t.id,
+                    fileName: autoBackupBaseName(t.file || t.path || 'document nou.docx'),
+                    source: t.path || '',
+                    html
+                });
+            });
+            if (hasUntabbedDirtyDoc()) {
+                out.push({ key: 'untabbed', fileName: 'document nou.docx', source: '', html: getDocHtml() });
+            }
+            return out;
+        }
+        async function postAutoBackup(entry) {
+            const fd = new FormData();
+            fd.append('fileName', entry.fileName);
+            fd.append('source', entry.source || '');
+            const blob = makeDocxBlob(entry.html);
+            if (blob) fd.append('content', await blobToBase64(blob));
+            else fd.append('html', entry.html);
+            const r = await fetch(api('action=autobackup'), { method: 'POST', body: fd });
+            const txt = await r.text();
+            let j;
+            try { j = JSON.parse(txt); }
+            catch (_) { throw new Error('raspuns invalid la autobackup'); }
+            if (!j.ok) throw new Error(j.error || 'autobackup esuat');
+            return j;
+        }
+        async function autoBackupNow(force = false) {
+            if (autoBackupBusy) return;
+            const entries = autoBackupEntries()
+                .map(e => ({ ...e, hash: autoBackupHash(e.html) }))
+                .filter(e => force || autoBackupHashes.get(e.key) !== e.hash);
+            if (!entries.length) return;
+            autoBackupBusy = true;
+            try {
+                let saved = 0, lastFile = '';
+                for (const entry of entries) {
+                    const j = await postAutoBackup(entry);
+                    autoBackupHashes.set(entry.key, entry.hash);
+                    saved++;
+                    lastFile = j.file || lastFile;
+                }
+                if (saved) setInfo('Backup Temp ' + new Date().toLocaleTimeString());
+                if (lastFile) console.info('AutoBackup:', lastFile);
+            } catch (e) {
+                console.warn('AutoBackup:', e);
+                setInfo('Backup Temp esuat');
+            } finally {
+                autoBackupBusy = false;
+            }
+        }
+        function scheduleAutoBackup(delay = AUTO_BACKUP_FIRST_DELAY_MS) {
+            clearTimeout(autoBackupTimer);
+            autoBackupTimer = setTimeout(() => autoBackupNow(false), delay);
+        }
+        function autoBackupBeacon() {
+            if (!navigator.sendBeacon) return;
+            const entries = autoBackupEntries().slice(0, 3);
+            entries.forEach(entry => {
+                const fd = new FormData();
+                fd.append('fileName', autoBackupBaseName(entry.fileName));
+                fd.append('source', entry.source || '');
+                fd.append('html', entry.html);
+                navigator.sendBeacon(api('action=autobackup'), fd);
+            });
+        }
         function renderTabs() {
             const bar = document.getElementById('tabBar');
             bar.innerHTML = '';
@@ -3847,8 +4536,7 @@ if (isset($_GET['action'])) {
             bar.appendChild(plus);
         }
         function activateTab(id) {
-            const cur = tabs.find(t => t.id === activeId);
-            if (cur && cur.id !== id) cur.html = getDocHtml();   // salvează editările curente în tab
+            syncActiveTab();   // salvează editările curente în tab
             const t = tabs.find(t => t.id === id);
             if (!t) return;
             activeId = id;
@@ -3889,20 +4577,69 @@ if (isset($_GET['action'])) {
                 }
             } else renderTabs();
         }
-        function closeActiveTab() { if (activeId) closeTab(activeId); else showOverlay(); }
+        async function closeUntabbedDocument() {
+            if (!hasUntabbedDirtyDoc()) { showOverlay(); return; }
+            const choice = await confirmSave('document nou.docx');
+            if (choice === 'cancel') return;
+            if (choice === 'save') {
+                const ok = await saveDocx();
+                if (!ok) return;
+            }
+            currentFile = null; currentExt = null;
+            setDocHtml('');
+            document.getElementById('stMode').textContent = '—';
+            showOverlay();
+        }
+        function closeActiveTab() { if (activeId) closeTab(activeId); else closeUntabbedDocument(); }
+        async function closeApplication() {
+            syncActiveTab();
+
+            for (const item of [...tabs]) {
+                const tab = tabs.find(t => t.id === item.id);
+                if (!tab) continue;
+                if (tab.id !== activeId) activateTab(tab.id);
+                tab.html = getDocHtml();
+                if (!isTabDirty(tab)) continue;
+
+                const choice = await confirmSave(tab.file || tab.path || 'document nou.docx');
+                if (choice === 'cancel') return;
+                if (choice === 'save') {
+                    const ok = await saveDocx();
+                    if (!ok) return;
+                }
+            }
+
+            if (hasUntabbedDirtyDoc()) {
+                const choice = await confirmSave('document nou.docx');
+                if (choice === 'cancel') return;
+                if (choice === 'save') {
+                    const ok = await saveDocx();
+                    if (!ok) return;
+                }
+            }
+
+            await autoBackupNow(true);
+            appCloseApproved = true;
+            setInfo('Iesire confirmata');
+            window.close();
+            setTimeout(() => toast('Poti inchide fereastra acum.'), 250);
+        }
 
         // ── Modal confirmare salvare → 'save' | 'discard' | 'cancel' ──
+        let cancelActiveSaveConfirm = null;
         function confirmSave(fileName) {
             return new Promise(resolve => {
+                if (cancelActiveSaveConfirm) cancelActiveSaveConfirm();
                 const ov = document.getElementById('confirmOverlay');
                 document.getElementById('confirmMsg').textContent =
-                    'Documentul „' + ((fileName || '').split(/[\\/]/).pop() || 'fără nume') + '" are modificări nesalvate.';
+                    'Documentul „' + ((fileName || '').split(/[\\/]/).pop() || 'fără nume') + '” are modificări nesalvate.';
                 ov.classList.add('open');
                 const sv = document.getElementById('cfSave'), ds = document.getElementById('cfDiscard'), cx = document.getElementById('cfCancel');
                 function done(val) {
                     ov.classList.remove('open');
                     sv.onclick = ds.onclick = cx.onclick = null;
                     document.removeEventListener('keydown', onKey, true);
+                    cancelActiveSaveConfirm = null;
                     resolve(val);
                 }
                 function onKey(e) {
@@ -3913,6 +4650,7 @@ if (isset($_GET['action'])) {
                 ds.onclick = () => done('discard');
                 cx.onclick = () => done('cancel');
                 document.addEventListener('keydown', onKey, true);
+                cancelActiveSaveConfirm = () => done('cancel');
                 setTimeout(() => sv.focus(), 30);
             });
         }
@@ -4050,6 +4788,7 @@ if (isset($_GET['action'])) {
         document.addEventListener('keydown', e => {
             // Esc închide (fără modificări): galeria de stiluri / overlay deschidere / Find&Replace / dialog stil
             if (e.key === 'Escape') {
+                if (document.getElementById('dexContextMenu').classList.contains('open')) { e.preventDefault(); hideDexContextMenu(); return; }
                 if (document.getElementById('styleGallery').classList.contains('open')) { e.preventDefault(); closeStyleGallery(); return; }
                 if (document.getElementById('imgOverlay').classList.contains('open')) { e.preventDefault(); closeImgDialog(); return; }
                 if (document.getElementById('csOverlay').classList.contains('open')) { e.preventDefault(); document.getElementById('csOverlay').classList.remove('open'); csEditTarget = null; document.getElementById('csTitle').textContent = 'Creează un stil nou'; return; }
@@ -4095,12 +4834,18 @@ if (isset($_GET['action'])) {
             canvasEl.scrollTo({ top: end ? canvasEl.scrollHeight : 0, behavior: 'smooth' });
         }
 
-        // ── Avertizare la închiderea aplicației dacă există modificări nesalvate ──
-        // (browserul nu permite un pop-up propriu pe unload; afișează dialogul nativ.)
+        // ── Backup la inchiderea ferestrei ──
+        // Chrome nu permite inlocuirea dialogului nativ "Leave app?" la X-ul ferestrei.
+        // De aceea nu setam e.returnValue aici; confirmarea personalizata este pe butonul Iesire.
         window.addEventListener('beforeunload', e => {
-            const cur = tabs.find(t => t.id === activeId);
-            if (cur) cur.html = getDocHtml();
-            if (tabs.some(t => isTabDirty(t))) { e.preventDefault(); e.returnValue = ''; return ''; }
+            if (appCloseApproved) return;
+            if (hasUnsavedChanges()) {
+                if (cancelActiveSaveConfirm) cancelActiveSaveConfirm();
+                autoBackupBeacon();
+            }
+        });
+        window.addEventListener('pagehide', () => {
+            if (hasUnsavedChanges()) autoBackupBeacon();
         });
 
         // ── Init ──
@@ -4112,12 +4857,13 @@ if (isset($_GET['action'])) {
         makeDraggable('selPaneHandle', 'selPane');
         makeDraggable('pathHandle', 'pathPopup');
         makeDraggable('diacHandle', 'diacPopup');
-        setDocHtml('');   // o coala goala cu placeholder
+        setDocHtml('');   // o coală goală (paragraf gol), gata de scris
         renderTabs();
         loadFileList('');
         renderRecent();
         renderSidebarRecent();
         showOverlay();    // popup de deschidere la pornire (ca în index V.4.php)
+        setInterval(() => autoBackupNow(false), AUTO_BACKUP_INTERVAL_MS);
     </script>
 </body>
 

@@ -392,6 +392,56 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    if ($action === 'dex_user_words') {
+        $userWordsFile = __DIR__ . DIRECTORY_SEPARATOR . 'user-words.txt';
+        $normUserWord = function ($w) {
+            $w = trim((string) $w);
+            $w = mb_strtolower($w, 'UTF-8');
+            return preg_match('/^\p{L}{2,40}$/u', $w) ? $w : '';
+        };
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            $words = [];
+            if (is_file($userWordsFile)) {
+                $lines = @file($userWordsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                if ($lines) {
+                    foreach ($lines as $line) {
+                        $word = $normUserWord($line);
+                        if ($word !== '') $words[$word] = true;
+                    }
+                }
+            }
+            $out = array_keys($words);
+            sort($out, SORT_NATURAL | SORT_FLAG_CASE);
+            echo json_encode(['ok' => true, 'exists' => is_file($userWordsFile), 'words' => $out, 'file' => $userWordsFile], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $raw = file_get_contents('php://input');
+            $data = json_decode($raw, true);
+            $words = isset($data['words']) && is_array($data['words']) ? $data['words'] : [];
+            $out = [];
+            foreach ($words as $w) {
+                $word = $normUserWord($w);
+                if ($word !== '') $out[$word] = true;
+            }
+            $list = array_keys($out);
+            sort($list, SORT_NATURAL | SORT_FLAG_CASE);
+            $text = $list ? (implode("\n", $list) . "\n") : '';
+            $ok = @file_put_contents($userWordsFile, $text, LOCK_EX);
+            if ($ok === false) {
+                echo json_encode(['ok' => false, 'error' => 'Nu pot scrie user-words.txt'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'words' => $list, 'file' => $userWordsFile], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        echo json_encode(['ok' => false, 'error' => 'Metoda neacceptata'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'list') {
         global $ALLOWED_EXT;
         // path absolut (orice partiție/folder) sau ::drives (lista partițiilor); gol = $ROOT implicit
@@ -3993,6 +4043,7 @@ if (isset($_GET['action'])) {
         const dexAutoKnown = new Set(), dexAutoMiss = new Set();
         const DEX_USER_KEY = 'wordEditor.dexUserWords.v2';
         const DEX_OLD_USER_KEYS = ['wordEditor.dexUserWords.v1'];
+        const DEX_USER_WORDS_API = api('action=dex_user_words');
         const DEX_NSPELL = 'https://cdn.jsdelivr.net/npm/nspell/+esm';
         const DEX_SOURCES = [
             {
@@ -4010,6 +4061,9 @@ if (isset($_GET['action'])) {
         const DEX_WORD_ONLY_RE = /^[A-Za-zĂÂÎȘȚăâîșțŞşŢţ]{2,}$/;
         const DEX_WORD_CHAR_RE = /[A-Za-zĂÂÎȘȚăâîșțŞşŢţ]/;
         let dexUserWords = loadDexUserWords();
+        let dexUserWordsFileLoaded = false;
+        let dexUserWordsFileSaving = false;
+        let dexUserWordsSaveTimer = null;
         async function fetchDexText(url) {
             const r = await fetch(url);
             if (!r.ok) throw new Error(url + ' -> HTTP ' + r.status);
@@ -4043,7 +4097,7 @@ if (isset($_GET['action'])) {
             if (dexOn) { clearDex(); dexOn = false; btn.classList.remove('active'); setInfo('DEX oprit'); return; }
             if (dexLoading) return;
             dexLoading = true; setInfo('DEX: se încarcă dicționarul român…'); toast('DEX: se încarcă dicționarul (o singură dată)…', 4000);
-            const ok = await loadDexDict();
+            const [ok] = await Promise.all([loadDexDict(), loadDexUserWordsFile(true)]);
             dexLoading = false;
             const stats = await runDexCheck();
             if (!ok && !stats.localOk) {
@@ -4090,8 +4144,60 @@ if (isset($_GET['action'])) {
                 return set;
             } catch (e) { return new Set(); }
         }
-        function saveDexUserWords() {
+        function saveDexUserWords(immediate = false) {
             localStorage.setItem(DEX_USER_KEY, JSON.stringify([...dexUserWords].sort()));
+            if (immediate) return saveDexUserWordsFile();
+            queueDexUserWordsFileSave();
+            return Promise.resolve(true);
+        }
+        async function loadDexUserWordsFile(force = false, syncBack = true) {
+            if (dexUserWordsFileLoaded && !force) return true;
+            try {
+                const r = await fetch(DEX_USER_WORDS_API);
+                const j = await r.json();
+                if (!j.ok) throw new Error(j.error || 'Nu pot citi user-words.txt');
+                const fileWords = new Set();
+                (j.words || []).forEach(w => {
+                    const key = dexWordKey(w);
+                    if (DEX_WORD_ONLY_RE.test(key)) fileWords.add(key);
+                });
+                dexUserWordsFileLoaded = true;
+                if (j.exists) {
+                    dexUserWords = fileWords;
+                    localStorage.setItem(DEX_USER_KEY, JSON.stringify([...dexUserWords].sort()));
+                } else if (syncBack && dexUserWords.size) {
+                    queueDexUserWordsFileSave();
+                }
+                return true;
+            } catch (e) {
+                console.warn('DEX user words file:', e);
+                return false;
+            }
+        }
+        function queueDexUserWordsFileSave() {
+            clearTimeout(dexUserWordsSaveTimer);
+            dexUserWordsSaveTimer = setTimeout(() => saveDexUserWordsFile(), 150);
+        }
+        async function saveDexUserWordsFile() {
+            if (dexUserWordsFileSaving) return;
+            dexUserWordsFileSaving = true;
+            try {
+                const r = await fetch(DEX_USER_WORDS_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ words: [...dexUserWords].sort() })
+                });
+                const j = await r.json();
+                if (!j.ok) throw new Error(j.error || 'Nu pot scrie user-words.txt');
+                dexUserWordsFileLoaded = true;
+                return true;
+            } catch (e) {
+                console.warn('DEX user words save:', e);
+                toast('Nu pot salva dictionarul personal in user-words.txt');
+                return false;
+            } finally {
+                dexUserWordsFileSaving = false;
+            }
         }
         function isDexUserWord(w) {
             return dexUserWords.has(dexWordKey(w));
@@ -4139,26 +4245,26 @@ if (isset($_GET['action'])) {
                 return false;
             }
         }
-        function addDexUserWord(word) {
+        async function addDexUserWord(word) {
             const key = dexWordKey(word);
             if (!DEX_WORD_ONLY_RE.test(key)) { hideDexContextMenu(); return; }
             const existed = dexUserWords.has(key);
             dexUserWords.add(key);
-            saveDexUserWords();
+            await saveDexUserWords(true);
             hideDexContextMenu();
             if (dexOn) runDexCheck();
             toast(existed ? ('Deja in dictionar: ' + word) : ('Adaugat in dictionar: ' + word));
         }
-        function removeDexUserWord(word) {
+        async function removeDexUserWord(word) {
             const key = dexWordKey(word);
             if (!dexUserWords.has(key)) { toast('Cuvantul nu este in dictionarul personal: ' + word); refreshDexContextActions(); return; }
             dexUserWords.delete(key);
-            saveDexUserWords();
+            await saveDexUserWords(true);
             hideDexContextMenu();
             if (dexOn) runDexCheck();
             toast('Sters din dictionar: ' + word);
         }
-        function renameDexUserWord(oldWord, newWord) {
+        async function renameDexUserWord(oldWord, newWord) {
             const oldKey = dexWordKey(oldWord);
             const newKey = dexWordKey(newWord);
             if (!dexUserWords.has(oldKey)) { toast('Cuvantul nu este in dictionarul personal: ' + oldWord); refreshDexContextActions(); return; }
@@ -4167,7 +4273,7 @@ if (isset($_GET['action'])) {
             if (dexUserWords.has(newKey)) { toast('Exista deja in dictionar: ' + newWord); refreshDexContextActions(); return; }
             dexUserWords.delete(oldKey);
             dexUserWords.add(newKey);
-            saveDexUserWords();
+            await saveDexUserWords(true);
             hideDexContextMenu();
             if (dexOn) runDexCheck();
             toast('Editat in dictionar: ' + oldWord + ' -> ' + newWord);
@@ -4784,8 +4890,20 @@ if (isset($_GET['action'])) {
             afterOpen(name, d.ext, null, d.isPdf);
         }
 
+        function isCtrlT(e) {
+            return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key && e.key.toLowerCase() === 't';
+        }
+        function blockCtrlT(e) {
+            if (!isCtrlT(e)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return false;
+        }
+        window.addEventListener('keydown', blockCtrlT, true);
+
         // ── Keyboard shortcuts ──
         document.addEventListener('keydown', e => {
+            if (isCtrlT(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
             // Esc închide (fără modificări): galeria de stiluri / overlay deschidere / Find&Replace / dialog stil
             if (e.key === 'Escape') {
                 if (document.getElementById('dexContextMenu').classList.contains('open')) { e.preventDefault(); hideDexContextMenu(); return; }
@@ -4850,6 +4968,7 @@ if (isset($_GET['action'])) {
 
         // ── Init ──
         buildDiac();
+        loadDexUserWordsFile().then(() => { if (dexOn) runDexCheck(); });
         // Enter în câmpurile de căutare → caută / înlocuiește
         document.getElementById('frFind').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); frFindNext(e.shiftKey); } });
         document.getElementById('frReplace').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); frReplace(); } });

@@ -1,0 +1,243 @@
+===============================================================================
+                    INSTRUCȚIUNI PAS CU PAS - EXTRAGERE BAZĂ DE DATE AUTOCORECT
+===============================================================================
+
+AUTOR: Assistant AI
+DATA: 27 august 2025
+VERSIUNE: 1.0
+
+===============================================================================
+                                INTRODUCERE
+===============================================================================
+
+Acest ghid te va ajuta să extragi toată baza de date din programul AutoCorect
+într-un singur fișier text. Baza de date conține aproximativ 1.200.000 de
+cuvinte și 6.000.000 de expresii în limba română.
+
+===============================================================================
+                                CE VEI OBTINE
+===============================================================================
+
+✅ Un fișier text cu toată baza de date (212+ MB)
+✅ Toate dicționarele românești într-un singur loc
+✅ Suport complet pentru diacritice românești
+✅ Posibilitatea de a căuta în toată baza de date
+✅ Backup complet al vocabularului românesc
+
+===============================================================================
+                                FIȘIERE NECESARE
+===============================================================================
+
+În folderul AutoCorect ai nevoie de:
+- Dictionare/ (cu fișiere .dic, .len, .cnt)
+- OCR_DIC/ (cu fișiere .imd)  
+- Dex/ (cu fișiere .dic, .inf)
+
+===============================================================================
+                                PAȘUL 1: DESCHIDE POWERSHELL
+===============================================================================
+
+1. Apasă tasta Windows + R
+2. Scrie: powershell
+3. Apasă Enter
+4. PowerShell se va deschide
+
+===============================================================================
+                                PAȘUL 2: NAVIGHEAZĂ LA FOLDER
+===============================================================================
+
+În PowerShell scrie:
+cd "D:\Program Files (x86)\AutoCorect"
+
+Apasă Enter.
+
+Verifică că ești în folderul corect:
+dir
+
+Ar trebui să vezi fișierele AutoCorect.exe, Dictionare/, OCR_DIC/, Dex/
+
+===============================================================================
+                                PAȘUL 3: PERMITE EXECUTAREA SCRIPTURILOR
+===============================================================================
+
+Scrie această comandă:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+Apasă Enter.
+
+Când te întreabă, scrie: Y
+Apasă Enter.
+
+===============================================================================
+                                PAȘUL 4: RULEAZĂ SCRIPTUL DE EXTRAGERE
+===============================================================================
+
+Scrie această comandă:
+.\extract_baza_date.ps1
+
+Apasă Enter.
+
+Scriptul va începe să proceseze fișierele.
+
+===============================================================================
+                                PAȘUL 5: MONITORIZEAZĂ PROGRESUL
+===============================================================================
+
+În timpul rulării vei vedea:
+- Fiecare fișier procesat
+- Dimensiunea fiecărui fișier
+- Progresul în timp real
+- Orice erori (dacă apar)
+
+Așteaptă până când se termină procesul.
+
+===============================================================================
+                                PAȘUL 6: VERIFICĂ REZULTATELE
+===============================================================================
+
+Când scriptul se termină, vei vedea:
+- Numărul total de fișiere procesate
+- Dimensiunea totală originală
+- Dimensiunea fișierului final
+- Mesajul "Extragerea a fost finalizată cu succes!"
+
+===============================================================================
+                                PAȘUL 7: VERIFICĂ FIȘIERUL CREAT
+===============================================================================
+
+Scrie această comandă:
+dir baza_date_completa.txt
+
+Ar trebui să vezi:
+- Numele: baza_date_completa.txt
+- Dimensiunea: ~212 MB
+- Data creării: astăzi
+
+===============================================================================
+                                PAȘUL 8: DESCHIDE ȘI VERIFICĂ
+===============================================================================
+
+Pentru a deschide fișierul:
+notepad baza_date_completa.txt
+
+SAU (recomandat pentru fișiere mari):
+notepad++ baza_date_completa.txt
+
+===============================================================================
+                                ALTERNATIVĂ: COMANDĂ MANUALĂ
+===============================================================================
+
+Dacă nu vrei să folosești scriptul, poți rula această comandă direct:
+
+Get-ChildItem -Recurse -Include *.dic,*.len,*.cnt,*.imd | Sort-Object FullName | ForEach-Object { "=== $($_.Name) ===" | Out-File -Append -FilePath "baza_date_completa.txt" -Encoding UTF8; Get-Content $_.FullName -Raw | Out-File -Append -FilePath "baza_date_completa.txt" -Encoding UTF8; "`n`n" | Out-File -Append -FilePath "baza_date_completa.txt" -Encoding UTF8 }
+
+===============================================================================
+                                CE CONȚINE FIȘIERUL FINAL
+===============================================================================
+
+Fișierul baza_date_completa.txt conține:
+
+=== nume_fisier1.dic ===
+[conținut complet fișier 1]
+
+=== nume_fisier2.len ===
+[conținut complet fișier 2]
+
+=== nume_fisier3.imd ===
+[conținut complet fișier 3]
+
+... (și așa mai departe pentru toate cele 97 de fișiere)
+
+===============================================================================
+                                CUM SĂ FOLOSEȘTI BAZA DE DATE
+===============================================================================
+
+1. CĂUTARE TEXT:
+   - Deschide fișierul în Notepad++ (recomandat)
+   - Apasă Ctrl + F
+   - Scrie cuvântul pe care vrei să-l cauți
+   - Apasă Enter
+
+2. ANALIZĂ VOCABULAR:
+   - Poți căuta pattern-uri în cuvinte
+   - Studiază frecvența cuvintelor
+   - Analizează structura vocabularului
+
+3. BACKUP:
+   - Copiază fișierul pe alte sisteme
+   - Fă backup-uri de siguranță
+   - Poți folosi pe alte programe
+
+===============================================================================
+                                REZOLVAREA PROBLEMELOR
+===============================================================================
+
+PROBLEMA: "Execution policy error"
+SOLUȚIA: Rulează din nou Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+PROBLEMA: "Access denied"
+SOLUȚIA: Închide PowerShell și deschide-l din nou ca Administrator
+
+PROBLEMA: "File not found"
+SOLUȚIA: Verifică că ești în folderul corect cu comanda dir
+
+PROBLEMA: "Out of memory"
+SOLUȚIA: Fișierele sunt mari, așteaptă să se termine procesul
+
+PROBLEMA: Scriptul nu rulează
+SOLUȚIA: Verifică că ai toate fișierele în folder și că ai permisiuni de scriere
+
+===============================================================================
+                                STATISTICI FINALE
+===============================================================================
+
+După extragere vei avea:
+- 1 fișier text cu toată baza de date
+- Dimensiune: ~212 MB
+- Conținut: 97 de fișiere de dicționar
+- Cuvinte: ~1.200.000
+- Expresii: ~6.000.000
+- Encoding: UTF-8 (suport românesc complet)
+
+===============================================================================
+                                RECOMANDĂRI FINALE
+===============================================================================
+
+1. Salvează fișierul extras într-un loc sigur
+2. Fă backup-uri regulate
+3. Folosește Notepad++ pentru fișiere mari
+4. Verifică că ai suficient spațiu pe disc
+5. Rulează scriptul când sistemul nu este încărcat
+
+===============================================================================
+                                SUCCES!
+===============================================================================
+
+Felicitări! Ai extras cu succes toată baza de date AutoCorect într-un singur
+fișier. Acum poți căuta, analiza și folosi vocabularul românesc complet
+într-un mod mult mai ușor și mai eficient.
+
+Baza de date conține o bogăție de informații lingvistice și este o resursă
+valoroasă pentru studierea și înțelegerea limbii române.
+
+UTILIZEAZĂ-O CU ÎNGRIJIRE! 🎯
+
+===============================================================================
+                                CONTACT
+===============================================================================
+
+Pentru probleme tehnice:
+- Verifică că toate fișierele sunt prezente
+- Rulează PowerShell ca Administrator
+- Verifică permisiunile de scriere
+- Consultă fișierele de instrucțiuni pentru detalii complete
+
+===============================================================================
+                                FINAL
+===============================================================================
+
+Acest ghid pas cu pas te-a ajutat să extragi baza de date AutoCorect.
+Acum ai acces la una dintre cele mai mari colecții de vocabular românesc
+disponibile pentru procesarea automată a textului.
+
+SUCCES LA EXTRAGERE! 🚀

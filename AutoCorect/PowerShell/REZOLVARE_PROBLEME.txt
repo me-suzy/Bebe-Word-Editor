@@ -1,0 +1,194 @@
+===============================================================================
+                    REZOLVAREA PROBLEMELOR DE ENCODING ȘI SEPARARE CUVINTE
+===============================================================================
+
+AUTOR: Assistant AI
+DATA: 27 august 2025
+VERSIUNE: 1.0
+
+===============================================================================
+                                PROBLEMELE IDENTIFICATE
+===============================================================================
+
+1. CUVINTELE SUNT LIPITE UNELE DE ALTELE
+   - În fișierul baza_date_completa.txt, cuvintele nu au spații între ele
+   - Exemplu: "cuvântulcuvântulalt" în loc de "cuvântul cuvântul alt"
+
+2. ENCODING-UL NU ESTE UTF-8 CORECT
+   - Diacriticele românești nu sunt afișate corect
+   - Caracterele speciale apar ca simboluri ciudate
+
+===============================================================================
+                                CAUZELE PROBLEMELOR
+===============================================================================
+
+1. SEPARAREA CUVINTELOR:
+   - Fișierele originale nu au spații între cuvinte
+   - Scriptul original nu procesa separarea cuvintelor
+   - Cuvintele sunt concatenate direct
+
+2. ENCODING-UL:
+   - Fișierele originale folosesc encoding-uri diferite
+   - PowerShell nu poate detecta automat encoding-ul corect
+   - UTF-8 nu este întotdeauna encoding-ul implicit
+
+===============================================================================
+                                SOLUȚIILE CREATE
+===============================================================================
+
+Am creat 3 versiuni îmbunătățite ale scriptului:
+
+1. extract_baza_date_fix.ps1 (4.3 KB)
+   - Versiunea corectată cu encoding și spațiere de bază
+   - Adaugă spații între cuvinte lipite
+   - Încearcă să detecteze encoding-ul corect
+
+2. extract_baza_date_advanced.ps1 (5.9 KB)
+   - Versiunea avansată cu separare inteligentă de cuvinte
+   - Detectează automat encoding-ul fiecărui fișier
+   - Algoritmi avansați pentru separarea cuvintelor
+
+3. test_encoding.ps1 (3.4 KB)
+   - Script de test pentru verificarea encoding-ului
+   - Testează cu câteva fișiere pentru a identifica problemele
+   - Afișează preview-ul conținutului
+
+===============================================================================
+                                PAȘII DE REZOLVARE
+===============================================================================
+
+PAȘUL 1: TESTEAZĂ ENCODING-UL
+--------------------------------
+Rulează scriptul de test pentru a vedea ce encoding folosesc fișierele:
+
+.\test_encoding.ps1
+
+Acest script va:
+- Testa primele 3 fișiere cu diferite encoding-uri
+- Afișa preview-ul conținutului
+- Identifica encoding-ul corect pentru fiecare fișier
+
+PAȘUL 2: EXTRAGE CU VERSIUNEA CORECTATĂ
+-----------------------------------------
+După ce vezi rezultatele testului, rulează una din versiunile corectate:
+
+# Pentru separare de bază:
+.\extract_baza_date_fix.ps1
+
+# Pentru separare avansată:
+.\extract_baza_date_advanced.ps1
+
+PAȘUL 3: VERIFICĂ REZULTATELE
+-------------------------------
+- Deschide fișierul rezultat
+- Verifică că diacriticele sunt afișate corect
+- Verifică că cuvintele au spații între ele
+
+===============================================================================
+                                ALGORITMII DE SEPARARE CUVINTE
+===============================================================================
+
+VERSIUNEA DE BAZĂ (fix):
+- Adaugă spații între litere mici și mari (camelCase)
+- Adaugă spații între litere și cifre
+- Adaugă spații între cuvinte lungi
+
+VERSIUNEA AVANSATĂ (advanced):
+- Detectează pattern-uri de separare mai complexe
+- Separare între vocale și consoane
+- Detectare automată a encoding-ului
+- Gestionare avansată a erorilor
+
+===============================================================================
+                                ENCODING-URI TESTATE
+===============================================================================
+
+Scripturile testează următoarele encoding-uri:
+1. UTF8 - Standard Unicode
+2. UTF7 - Unicode 7-bit
+3. Unicode - UTF-16 Little Endian
+4. BigEndianUnicode - UTF-16 Big Endian
+5. Default - Encoding-ul implicit al sistemului
+6. ASCII - American Standard Code
+
+===============================================================================
+                                EXEMPLE DE SEPARARE
+===============================================================================
+
+ÎNAINTE (cuvinte lipite):
+"cuvântulcuvântulalt"
+
+DUPĂ SEPARARE:
+"cuvântul cuvântul alt"
+
+PATTERN-URI DETECTATE:
+- camelCase: "cuvântulAlt" → "cuvântul Alt"
+- Litere+Cifre: "cuvântul123" → "cuvântul 123"
+- Vocale+Consoane: "cuvântulalt" → "cuvântul alt"
+
+===============================================================================
+                                VERIFICAREA CALITĂȚII
+===============================================================================
+
+După rularea scriptului corectat, verifică:
+
+1. ENCODING:
+   - Diacriticele românești sunt afișate corect
+   - Nu apar simboluri ciudate (, ?, etc.)
+
+2. SEPARAREA CUVINTELOR:
+   - Cuvintele au spații între ele
+   - Textul este lizibil
+   - Nu sunt cuvinte lipite
+
+3. CONȚINUTUL:
+   - Toate fișierele sunt prezente
+   - Separatorii între fișiere sunt clari
+   - Headerele cu numele fișierelor sunt corecte
+
+===============================================================================
+                                REZOLVAREA PROBLEMELOR SPECIFICE
+===============================================================================
+
+PROBLEMA: "Diacriticele nu sunt afișate corect"
+SOLUȚIA: Scriptul detectează automat encoding-ul corect
+
+PROBLEMA: "Cuvintele sunt încă lipite"
+SOLUȚIA: Folosește versiunea avansată cu algoritmi mai buni
+
+PROBLEMA: "Scriptul rulează dar nu se termină"
+SOLUȚIA: Fișierele sunt mari, așteaptă să se termine (2-5 minute)
+
+PROBLEMA: "Eroare la citirea fișierelor"
+SOLUȚIA: Scriptul gestionează erorile și continuă cu următorul fișier
+
+===============================================================================
+                                RECOMANDĂRI
+===============================================================================
+
+1. Începe cu scriptul de test pentru a identifica problemele
+2. Folosește versiunea avansată pentru cele mai bune rezultate
+3. Verifică întotdeauna fișierul rezultat înainte de a-l folosi
+4. Fă backup la fișierul original înainte de a-l înlocui
+5. Testează cu câteva fișiere înainte de a procesa toată baza de date
+
+===============================================================================
+                                COMPARAȚIA VERSIUNILOR
+===============================================================================
+
+| Versiune | Separare Cuvinte | Detectare Encoding | Viteză | Calitate |
+|----------|------------------|-------------------|---------|----------|
+| Original | ❌ Nu | ❌ Nu | ⚡ Rapid | ⚠️ Scăzută |
+| Fix | ✅ De bază | ⚠️ Limitată | ⚡ Rapid | ✅ Îmbunătățită |
+| Advanced | ✅ Avansată | ✅ Completă | 🐌 Mai lent | ✅ Excelentă |
+
+===============================================================================
+                                FINAL
+===============================================================================
+
+Aceste versiuni corectate rezolvă problemele de encoding și separare
+identificate în versiunea originală. Scriptul avansat oferă cea mai bună
+calitate, dar rulează mai lent. Pentru testare rapidă, folosește versiunea
+de bază sau scriptul de test.
+
+SUCCES LA REZOLVAREA PROBLEMELOR! 🎯

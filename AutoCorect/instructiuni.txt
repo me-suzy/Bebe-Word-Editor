@@ -1,0 +1,178 @@
+===============================================================================
+                    INSTRUCȚIUNI COMPLETE - EXTRAGERE BAZĂ DE DATE AUTOCORECT
+===============================================================================
+
+AUTOR: Assistant AI
+DATA: 27 august 2025
+VERSIUNE: 1.0
+
+===============================================================================
+                                DESCRIERE
+===============================================================================
+
+Acest document explică cum să extragi toată baza de date din programul AutoCorect
+într-un singur fișier text. Baza de date conține aproximativ 1.200.000 de cuvinte
+și 6.000.000 de expresii în limba română.
+
+===============================================================================
+                                FIȘIERE NECESARE
+===============================================================================
+
+1. extract_baza_date.ps1 - Script PowerShell pentru extragere
+2. Instructiuni.txt - Acest fișier cu instrucțiuni
+3. Acces la folderul AutoCorect cu toate subfolderele
+
+===============================================================================
+                                PAȘII DE URMAT
+===============================================================================
+
+PAȘUL 1: VERIFICARE PRELIMINARĂ
+--------------------------------
+- Asigură-te că ai acces la folderul AutoCorect
+- Verifică că toate subfolderele sunt prezente:
+  * Dictionare/
+  * OCR_DIC/
+  * Dex/
+- Verifică că ai permisiuni de scriere în folder
+
+PAȘUL 2: DESCHIDEREA POWERSHELL
+--------------------------------
+- Apasă Win + R
+- Scrie: powershell
+- Apasă Enter
+- Navighează la folderul AutoCorect:
+  cd "D:\Program Files (x86)\AutoCorect"
+
+PAȘUL 3: RULAREA SCRIPTULUI
+----------------------------
+- Rulează scriptul PowerShell:
+  .\extract_baza_date.ps1
+- SAU dacă ai probleme cu permisiunile:
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  .\extract_baza_date.ps1
+
+PAȘUL 4: MONITORIZAREA PROCESULUI
+----------------------------------
+- Scriptul va afișa progresul în timp real
+- Vei vedea fiecare fișier procesat
+- Așteaptă până când se termină procesul
+
+PAȘUL 5: VERIFICAREA REZULTATULUI
+-----------------------------------
+- Scriptul va afișa rezultatele finale
+- Fișierul baza_date_completa.txt va fi creat
+- Verifică dimensiunea fișierului final
+
+===============================================================================
+                                COMENZI MANUALE (ALTERNATIVĂ)
+===============================================================================
+
+Dacă nu vrei să folosești scriptul, poți rula manual această comandă:
+
+Get-ChildItem -Recurse -Include *.dic,*.len,*.cnt,*.imd | Sort-Object FullName | ForEach-Object { "=== $($_.Name) ===" | Out-File -Append -FilePath "baza_date_completa.txt" -Encoding UTF8; Get-Content $_.FullName -Raw | Out-File -Append -FilePath "baza_date_completa.txt" -Encoding UTF8; "`n`n" | Out-File -Append -FilePath "baza_date_completa.txt" -Encoding UTF8 }
+
+===============================================================================
+                                STRUCTURA FIȘIERELOR PROCESATE
+===============================================================================
+
+TIPURI DE FIȘIERE:
+- *.dic - Dicționare cu cuvinte
+- *.len - Fișiere cu lungimi de cuvinte  
+- *.cnt - Fișiere cu numărul de cuvinte
+- *.imd - Fișiere pentru recunoaștere optică (OCR)
+
+SUBFOLDERE PROCESATE:
+- Dictionare/ - Dicționare principale (română, engleză, franceză)
+- OCR_DIC/ - Dicționare pentru recunoaștere optică
+- Dex/ - Dicționar explicativ român
+
+===============================================================================
+                                REZULTATELE AȘTEPTATE
+===============================================================================
+
+- Fișier final: baza_date_completa.txt
+- Dimensiune: ~200-220 MB
+- Conținut: Toate dicționarele concatenate
+- Format: Text cu separatori între fișiere
+- Encoding: UTF-8
+
+===============================================================================
+                                UTILIZAREA FIȘIERULUI FINAL
+===============================================================================
+
+1. CĂUTARE TEXT:
+   - Deschide în Notepad++ sau alt editor text
+   - Folosește Ctrl+F pentru căutare
+   - Caută cuvinte specifice în toată baza de date
+
+2. ANALIZĂ VOCABULAR:
+   - Poți analiza structura vocabularului românesc
+   - Identifică pattern-uri în cuvinte
+   - Studiază frecvența cuvintelor
+
+3. BACKUP ȘI PORTABILITATE:
+   - Copiază fișierul pe alte sisteme
+   - Fă backup-uri de siguranță
+   - Poți folosi pe alte programe
+
+===============================================================================
+                                REZOLVAREA PROBLEMELOR
+===============================================================================
+
+PROBLEMA: "Execution policy error"
+SOLUȚIA: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+PROBLEMA: "Access denied"
+SOLUȚIA: Rulează PowerShell ca Administrator
+
+PROBLEMA: "File not found"
+SOLUȚIA: Verifică că ești în folderul corect
+
+PROBLEMA: "Out of memory"
+SOLUȚIA: Fișierele sunt mari, așteaptă să se termine procesul
+
+===============================================================================
+                                INFORMATII TEHNICE
+===============================================================================
+
+- Limbaj: PowerShell 5.0+
+- Sistem de operare: Windows 7/8/10/11
+- Memorie necesară: ~500 MB RAM
+- Timp de procesare: 2-5 minute (depinde de sistem)
+- Encoding: UTF-8 pentru suport complet românesc
+
+===============================================================================
+                                CONTACT ȘI SUPPORT
+===============================================================================
+
+Pentru probleme tehnice:
+- Verifică că toate fișierele sunt prezente
+- Rulează PowerShell ca Administrator
+- Verifică permisiunile de scriere
+
+===============================================================================
+                                LICENȚĂ ȘI UTILIZARE
+===============================================================================
+
+Acest script este creat pentru uz personal și educațional.
+Baza de date AutoCorect aparține SoftSet și este protejată de drepturi de autor.
+Utilizarea este permisă doar în scopuri non-profit.
+
+===============================================================================
+                                VERSIUNI ȘI ACTUALIZĂRI
+===============================================================================
+
+Versiunea 1.0 (27 august 2025):
+- Prima versiune a scriptului
+- Suport pentru toate tipurile de fișiere
+- Gestionarea erorilor
+- Interfață vizuală cu progres
+
+===============================================================================
+                                FINAL
+===============================================================================
+
+Acest script extrage toată baza de date AutoCorect într-un singur fișier
+pentru a facilita analiza, căutarea și backup-ul vocabularului românesc.
+
+SUCCES LA EXTRAGERE! 🎯

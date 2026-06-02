@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<XML_DIZ_INFO>
+	<MASTER_PAD_VERSION_INFO>
+		<MASTER_PAD_VERSION>3.10</MASTER_PAD_VERSION>
+		<MASTER_PAD_EDITOR>PADGen 3.1.0.41 http://www.padgen.org</MASTER_PAD_EDITOR>
+		<MASTER_PAD_INFO>Portable Application Description, or PAD for short, is a data set that is used by shareware authors to disseminate information to anyone interested in their software products. To find out more go to http://www.asp-shareware.org/pad</MASTER_PAD_INFO>
+	</MASTER_PAD_VERSION_INFO>
+	<Company_Info>
+		<Company_Name>SoftSet</Company_Name>
+		<Address_1 />
+		<Address_2 />
+		<City_Town>Bacau si Bucuresti</City_Town>
+		<State_Province />
+		<Zip_Postal_Code />
+		<Country>Romania</Country>
+		<Company_WebSite_URL>http://www.softset.ro</Company_WebSite_URL>
+		<Contact_Info>
+			<Author_First_Name>Cosmin Ciuperca</Author_First_Name>
+			<Author_Last_Name>Daniel Morlova</Author_Last_Name>
+			<Author_Email>vezi@pe.site</Author_Email>
+			<Contact_First_Name>Cosmin Ciuperca</Contact_First_Name>
+			<Contact_Last_Name>Daniel Morlova</Contact_Last_Name>
+			<Contact_Email>vezi@pe.site</Contact_Email>
+		</Contact_Info>
+		<Support_Info>
+			<Sales_Email>vezi@pe.site</Sales_Email>
+			<Support_Email>vezi@pe.site</Support_Email>
+			<General_Email>vezi@pe.site</General_Email>
+			<Sales_Phone />
+			<Support_Phone />
+			<General_Phone />
+			<Fax_Phone />
+		</Support_Info>
+	</Company_Info>
+	<Program_Info>
+		<Program_Name>AutoCorect</Program_Name>
+		<Program_Version>4.1.5</Program_Version>
+		<Program_Release_Month>09</Program_Release_Month>
+		<Program_Release_Day>29</Program_Release_Day>
+		<Program_Release_Year>2011</Program_Release_Year>
+		<Program_Cost_Dollars>0</Program_Cost_Dollars>
+		<Program_Cost_Other_Code />
+		<Program_Cost_Other />
+		<Program_Type>Freeware</Program_Type>
+		<Program_Release_Status>Minor Update</Program_Release_Status>
+		<Program_Install_Support>Install and Uninstall</Program_Install_Support>
+		<Program_OS_Support>Win2000,Win7 x32,Win7 x64,Win98,WinVista,WinVista x64,WinXP</Program_OS_Support>
+		<Program_Language>Romanian</Program_Language>
+		<Program_Change_Info />
+		<Program_Specific_Category>Utilities</Program_Specific_Category>
+		<Program_Category_Class>System Utilities::Text/Document Editors</Program_Category_Class>
+		<Program_System_Requirements />
+		<File_Info>
+			<File_Size_Bytes>51356842</File_Size_Bytes>
+			<File_Size_K>50153</File_Size_K>
+			<File_Size_MB>48.98</File_Size_MB>
+		</File_Info>
+		<Expire_Info>
+			<Has_Expire_Info>N</Has_Expire_Info>
+			<Expire_Count />
+			<Expire_Based_On>Days</Expire_Based_On>
+			<Expire_Other_Info />
+			<Expire_Month />
+			<Expire_Day />
+			<Expire_Year />
+		</Expire_Info>
+	</Program_Info>
+	<Program_Descriptions>
+		<English>
+			<Keywords>diacritice, punctuatie, ortografie, monitorizare clipboard , RTF, DOC, export HTML</Keywords>
+			<Char_Desc_45>Diacritice la comanda, punctuatie automata.</Char_Desc_45>
+			<Char_Desc_80 />
+			<Char_Desc_250>Procesorul de texte AutoCorect este un program foarte puternic pentru prelucrarea textelor. Asigura pe langa operatiile clasice de prelucrare a textelor si corectii ortografice, corectia punctuatiei si imbogatirea cuvintelelor cu diacritice.</Char_Desc_250>
+			<Char_Desc_450 />
+			<Char_Desc_2000>
+Ce este si ce face?
+AutoCorect este acum un editor de texte in adevaratul sens al cuvantului, putand crea sau edita profesional cele mai importante formate de fisiere existente. Dispune de o gama variata de functionalitati care va permit formatarea documentului la nivel de paragraf si/sau caracter. Introducerea tabelelor si a imaginilor este foarte simplu de efectuat. AutoCorect asigura pe langa operatiile clasice de prelucrare a textelor si corectii ortografice, corectia punctuatiei, imbogatirea cuvintelelor cu diacritice manual si/sau automat, suport pentru Ortografie si Punctuatie, DEX, etc.. Programul este foarte accesibil, chiar si pentru aceia care au o experienta redusa in folosirea calculatoarelor.
+
+Cum face?
+Aplicatia isi bazeaza inlocuirea si aplicarea de diacritice pe o selectie de cuvinte si expresii aflate intr-o structura de dictionare (cca. 1.200.000 de cuvinte si 6.000.000 de expresii), punctuatia pe o serie de algoritmi iar ortografierea, care este o optiune semi-automata, pe capacitatea dvs. de analizare a unui cuvant extras dintr-o fraza, considerat posibil gresit de catre aplicatie si inlocuirea lui cu altul selectabil dintr-o lista de cuvinte sugestii.
+
+De ce face?
+O face in primul rand pentru ca am vrut sa aratam ca se poate, apoi o face pentru ca ai nevoie de timp, pentru ca altcineva in locul tau nu ar vrea sa o faca, pentru ca este o treaba urata sa stai sa aplici diacritice, etc..
+
+Cat dureaza?
+Viteza de executie este foarte mare, neputandu-se egala viteza si corectitudinea corectiei cu nici un alt program (corectia manuala iese complet din discutie in ceea ce priveste viteza). O pagina este corectata in cateva milisecunde, iar o suta in cateva secunde, minute, totul tine de puterea de calcul a masinii pe care rulati softul. 
+
+Sistem de Operare:
+Windows 95-98-ME, Win 2000, Win NT, Win XP, Win Vista.
+
+Formate de fisiere suportate:
+DOC Word Office 97-2010, RTF, SUB, SRT, TXT, HTML, UTF-8, UTF-16.</Char_Desc_2000>
+		</English>
+	</Program_Descriptions>
+	<Web_Info>
+		<Application_URLs>
+			<Application_Info_URL>http://softset.ro/autocorect.html</Application_Info_URL>
+			<Application_Order_URL />
+			<Application_Screenshot_URL>http://softset.ro/screenshots_ac. Html</Application_Screenshot_URL>
+			<Application_Icon_URL>http://softset.ro/images/ac.jpg</Application_Icon_URL>
+			<Application_XML_File_URL>http://www.softset.ro/autocorect.xml</Application_XML_File_URL>
+		</Application_URLs>
+		<Download_URLs>
+			<Primary_Download_URL>http://softset.ro/download/ccount/click.php?id=2</Primary_Download_URL>
+			<Secondary_Download_URL>http://softset.ro/download/ccount/click.php?id=7</Secondary_Download_URL>
+			<Additional_Download_URL_1 />
+			<Additional_Download_URL_2 />
+		</Download_URLs>
+	</Web_Info>
+	<Permissions>
+		<Distribution_Permissions>Softul este gratuit dar numai in cazul folosirii lui in scop non-profit. Folosirea sau distribuirea softului in scopuri profitabile va trebui sa se faca numai cu acordul nostru scris.</Distribution_Permissions>
+		<EULA />
+	</Permissions>
+</XML_DIZ_INFO>

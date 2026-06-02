@@ -1,0 +1,184 @@
+{
+  "generatedAt": "2026-06-01T16:23:56.922Z",
+  "autoRoot": "D:\\Teste cursor\\HTML Editor\\Word Editor\\AutoCorect",
+  "includeDex": false,
+  "includeOcr": false,
+  "wordCount": 1619089,
+  "bytes": 19039718,
+  "stats": [
+    {
+      "source": "Dictionare/afb.dic",
+      "mode": "len",
+      "pieces": 20683,
+      "added": 20683
+    },
+    {
+      "source": "Dictionare/afi.dic",
+      "mode": "len",
+      "pieces": 20683,
+      "added": 20284
+    },
+    {
+      "source": "Dictionare/ca.dic",
+      "mode": "text",
+      "pieces": 0,
+      "added": 418
+    },
+    {
+      "source": "Dictionare/ccvb.dic",
+      "mode": "len",
+      "pieces": 85666,
+      "added": 57129
+    },
+    {
+      "source": "Dictionare/ccvi.dic",
+      "mode": "len",
+      "pieces": 175926,
+      "added": 80650
+    },
+    {
+      "source": "Dictionare/cfvb.dic",
+      "mode": "len",
+      "pieces": 664749,
+      "added": 458468
+    },
+    {
+      "source": "Dictionare/cfvi.dic",
+      "mode": "len",
+      "pieces": 664749,
+      "added": 404552
+    },
+    {
+      "source": "Dictionare/ci.dic",
+      "mode": "len",
+      "pieces": 237,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/do.dic",
+      "mode": "len",
+      "pieces": 3683862,
+      "added": 61245
+    },
+    {
+      "source": "Dictionare/ecvb.dic",
+      "mode": "len",
+      "pieces": 265752,
+      "added": 247
+    },
+    {
+      "source": "Dictionare/ecvi.dic",
+      "mode": "len",
+      "pieces": 532075,
+      "added": 1
+    },
+    {
+      "source": "Dictionare/efvb.dic",
+      "mode": "len",
+      "pieces": 1428769,
+      "added": 20096
+    },
+    {
+      "source": "Dictionare/efvi.dic",
+      "mode": "len",
+      "pieces": 1428769,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/eo.dic",
+      "mode": "len",
+      "pieces": 33766,
+      "added": 1
+    },
+    {
+      "source": "Dictionare/eo2c.dic",
+      "mode": "len",
+      "pieces": 1600141,
+      "added": 4774
+    },
+    {
+      "source": "Dictionare/sf.dic",
+      "mode": "len",
+      "pieces": 74474,
+      "added": 30270
+    },
+    {
+      "source": "Dictionare/sfnb.dic",
+      "mode": "len",
+      "pieces": 17925,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/sfni.dic",
+      "mode": "len",
+      "pieces": 17925,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/sga.dic",
+      "mode": "len",
+      "pieces": 131431,
+      "added": 65444
+    },
+    {
+      "source": "Dictionare/sp.dic",
+      "mode": "len",
+      "pieces": 56341,
+      "added": 23071
+    },
+    {
+      "source": "Dictionare/tc.dic",
+      "mode": "len",
+      "pieces": 1380205,
+      "added": 371754
+    },
+    {
+      "source": "Dictionare/vp3b.dic",
+      "mode": "len",
+      "pieces": 933,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/vp3i.dic",
+      "mode": "len",
+      "pieces": 933,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/vpb.dic",
+      "mode": "len",
+      "pieces": 5191,
+      "added": 1
+    },
+    {
+      "source": "Dictionare/vpi.dic",
+      "mode": "len",
+      "pieces": 5191,
+      "added": 1
+    },
+    {
+      "source": "Dictionare/vsb.dic",
+      "mode": "len",
+      "pieces": 3666,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/vsi.dic",
+      "mode": "len",
+      "pieces": 3666,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/vvb.dic",
+      "mode": "len",
+      "pieces": 2544,
+      "added": 0
+    },
+    {
+      "source": "Dictionare/vvi.dic",
+      "mode": "len",
+      "pieces": 2544,
+      "added": 0
+    }
+  ]
+}

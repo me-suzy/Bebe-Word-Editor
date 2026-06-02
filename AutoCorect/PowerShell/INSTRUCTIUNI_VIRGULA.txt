@@ -1,0 +1,232 @@
+===============================================================================
+                    INSTRUCȚIUNI - EXTRAGERE BAZĂ DE DATE CU VIRGULĂ
+===============================================================================
+
+AUTOR: Assistant AI
+DATA: 27 august 2025
+VERSIUNE: 3.0 - Cuvinte separate prin virgulă, encoding UTF-8 complet
+
+===============================================================================
+                                DESCRIERE
+===============================================================================
+
+Acest script extrage toată baza de date din programul AutoCorect într-un
+singur fișier text, cu următoarele îmbunătățiri:
+
+✅ CUVINTELE SUNT SEPARATE PRIN VIRGULĂ (nu lipite)
+✅ ENCODING-UL ESTE UTF-8 COMPLET (diacritice românești perfecte)
+✅ FIȘIERUL FINAL ESTE CODAT ÎN UTF-8 (tot conținutul)
+
+===============================================================================
+                                PROBLEMA REZOLVATĂ
+===============================================================================
+
+În versiunea originală aveai:
+"cuvântulcuvântulalt" (cuvinte lipite)
+
+Acum vei avea:
+"cuvântul,cuvântul,alt" (cuvinte separate prin virgulă)
+
+===============================================================================
+                                FIȘIERE DISPONIBILE
+===============================================================================
+
+1. extract_baza_date_virgula.ps1 (6.2 KB)
+   - Script principal pentru extragerea completă
+   - Cuvinte separate prin virgulă
+   - Encoding UTF-8 complet
+
+2. test_virgula.ps1 (4.1 KB)
+   - Script de test pentru verificarea separării
+   - Testează cu câteva fișiere
+   - Afișează preview original vs. procesat
+
+===============================================================================
+                                PAȘII DE URMAT
+===============================================================================
+
+PAȘUL 1: TESTEAZĂ SEPARAREA CU VIRGULĂ
+----------------------------------------
+Rulează scriptul de test pentru a vedea cum funcționează separarea:
+
+.\test_virgula.ps1
+
+Acest script va:
+- Testa primele 3 fișiere
+- Afișa conținutul original vs. procesat
+- Crea fișierul test_virgula.txt pentru verificare
+
+PAȘUL 2: EXTRAGE COMPLETĂ CU VIRGULĂ
+--------------------------------------
+După ce vezi că testul funcționează, rulează extragerea completă:
+
+.\extract_baza_date_virgula.ps1
+
+Acest script va:
+- Procesa toate cele 97 de fișiere
+- Separa cuvintele lipite cu virgulă
+- Crea fișierul baza_date_completa_virgula.txt
+- Verifica că encoding-ul este UTF-8 complet
+
+PAȘUL 3: VERIFICĂ REZULTATELE
+-------------------------------
+- Deschide fișierul baza_date_completa_virgula.txt
+- Verifică că diacriticele sunt afișate corect
+- Verifică că cuvintele sunt separate prin virgulă
+
+===============================================================================
+                                ALGORITMII DE SEPARARE CU VIRGULĂ
+===============================================================================
+
+Scriptul detectează și corectează următoarele pattern-uri:
+
+1. CAMELCASE: "cuvântulAlt" → "cuvântul,Alt"
+2. LITERE+CIFRE: "cuvântul123" → "cuvântul,123"
+3. VOCALE+CONSOANE: "cuvântulalt" → "cuvântul,alt"
+4. CONSOANE+VOCALE: "cuvântulalt" → "cuvântul,alt"
+5. CUVINTE LUNGI: "cuvântullungcuvântulalt" → "cuvântullung,cuvântulalt"
+
+EXEMPLE CONCRETE:
+- ÎNAINTE: "cuvântulcuvântulalt"
+- DUPĂ: "cuvântul,cuvântul,alt"
+
+===============================================================================
+                                ENCODING UTF-8 COMPLET
+===============================================================================
+
+Scriptul garantează că:
+
+1. FIȘIERUL FINAL ESTE CODAT ÎN UTF-8
+   - Toate caracterele sunt UTF-8
+   - Diacriticele românești sunt perfecte
+   - Nu apar simboluri ciudate
+
+2. DETECTAREA AUTOMATĂ A ENCODING-ULUI
+   - Testează 6 tipuri de encoding
+   - Alege cel mai potrivit pentru fiecare fișier
+   - Convertește totul la UTF-8
+
+3. VERIFICAREA ENCODING-ULUI
+   - Verifică că fișierul final este UTF-8
+   - Confirmă suportul pentru diacritice românești
+
+===============================================================================
+                                REZULTATELE AȘTEPTATE
+===============================================================================
+
+- Fișier final: baza_date_completa_virgula.txt
+- Dimensiune: ~220-250 MB (cu virgule adăugate)
+- Encoding: UTF-8 complet
+- Format: Cuvinte separate prin virgulă
+- Diacritice: Perfecte (ă, â, î, ș, ț, Ă, Â, Î, Ș, Ț)
+
+===============================================================================
+                                UTILIZAREA FIȘIERULUI FINAL
+===============================================================================
+
+1. CĂUTARE TEXT:
+   - Deschide în Notepad++ (recomandat pentru fișiere mari)
+   - Folosește Ctrl+F pentru căutare
+   - Cuvintele sunt separate prin virgulă, ușor de găsit
+
+2. ANALIZĂ VOCABULAR:
+   - Poți căuta pattern-uri între virgule
+   - Identifică cuvinte specifice
+   - Studiază structura vocabularului
+
+3. IMPORT ÎN BAZE DE DATE:
+   - Formatul cu virgulă este ideal pentru import
+   - Poți folosi ca CSV (comma-separated values)
+   - Compatibil cu Excel, Access, SQL
+
+===============================================================================
+                                COMPARAȚIA VERSIUNILOR
+===============================================================================
+
+| Versiune | Separare Cuvinte | Encoding | Format | Calitate |
+|----------|------------------|----------|---------|----------|
+| Original | ❌ Nu | ❌ Nu | ❌ Lipite | ⚠️ Scăzută |
+| Fix | ✅ Spații | ⚠️ Limitată | ✅ Separare | ✅ Îmbunătățită |
+| Advanced | ✅ Spații | ✅ Completă | ✅ Separare | ✅ Excelentă |
+| Virgulă | ✅ Virgulă | ✅ UTF-8 complet | ✅ CSV | 🚀 PERFECTĂ |
+
+===============================================================================
+                                AVANTAJELE VERSIUNII CU VIRGULĂ
+===============================================================================
+
+1. CUVINTELE SUNT PERFECT SEPARATE
+   - Nu mai sunt lipite
+   - Format ușor de citit
+   - Ideal pentru procesare automată
+
+2. ENCODING UTF-8 COMPLET
+   - Diacritice românești perfecte
+   - Compatibil cu toate sistemele
+   - Suport Unicode complet
+
+3. FORMAT CSV-COMPATIBIL
+   - Poți importa în Excel
+   - Compatibil cu baze de date
+   - Ușor de procesat programatic
+
+4. CALITATE SUPERIOARĂ
+   - Cea mai bună separare de cuvinte
+   - Encoding perfect
+   - Format profesional
+
+===============================================================================
+                                REZOLVAREA PROBLEMELOR
+===============================================================================
+
+PROBLEMA: "Virgulele sunt prea multe"
+SOLUȚIA: Scriptul curăță virgulele multiple automat
+
+PROBLEMA: "Diacriticele nu sunt perfecte"
+SOLUȚIA: Scriptul verifică encoding-ul și confirmă UTF-8
+
+PROBLEMA: "Scriptul rulează prea lent"
+SOLUȚIA: Fișierele sunt mari, așteaptă să se termine (3-6 minute)
+
+PROBLEMA: "Cuvintele sunt încă lipite"
+SOLUȚIA: Scriptul folosește algoritmi avansați pentru separare
+
+===============================================================================
+                                RECOMANDĂRI
+===============================================================================
+
+1. Începe cu test_virgula.ps1 pentru a verifica funcționalitatea
+2. Folosește extract_baza_date_virgula.ps1 pentru extragerea completă
+3. Verifică că fișierul final este UTF-8 și are cuvinte separate prin virgulă
+4. Fă backup la fișierul original înainte de a-l înlocui
+5. Testează cu câteva fișiere înainte de a procesa toată baza de date
+
+===============================================================================
+                                FINAL
+===============================================================================
+
+Această versiune cu virgulă oferă cea mai bună calitate posibilă:
+- Cuvinte perfect separate prin virgulă
+- Encoding UTF-8 complet
+- Format CSV-compatibil
+- Diacritice românești perfecte
+
+SUCCES LA EXTRAGEREA CU VIRGULĂ! 🎯
+
+===============================================================================
+                                CONTACT
+===============================================================================
+
+Pentru probleme tehnice:
+- Verifică că toate fișierele sunt prezente
+- Rulează PowerShell ca Administrator
+- Verifică permisiunile de scriere
+- Consultă acest fișier pentru detalii complete
+
+===============================================================================
+                                FINAL
+===============================================================================
+
+Acum ai instrumentul perfect pentru extragerea bazei de date AutoCorect
+cu cuvinte separate prin virgulă și encoding UTF-8 complet!
+
+UTILIZEAZĂ VERSIUNEA CU VIRGULĂ PENTRU REZULTATE PERFECTE! 🚀

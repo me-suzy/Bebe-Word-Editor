@@ -630,6 +630,44 @@ if (isset($_GET['action'])) {
         exit;
     }
 
+    if ($action === 'bookmarks') {
+        $bookmarksFile = __DIR__ . DIRECTORY_SEPARATOR . 'semne-de-carte.json';
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+            $bookmarks = [];
+            if (is_file($bookmarksFile)) {
+                $raw = @file_get_contents($bookmarksFile);
+                $decoded = json_decode($raw ?: '{}', true);
+                if (is_array($decoded)) $bookmarks = $decoded;
+            }
+            echo json_encode(['ok' => true, 'file' => $bookmarksFile, 'bookmarks' => (object) $bookmarks], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $raw = file_get_contents('php://input');
+            $data = json_decode($raw ?: '{}', true);
+            $bookmarks = isset($data['bookmarks']) && is_array($data['bookmarks']) ? $data['bookmarks'] : [];
+            $json = json_encode((object) $bookmarks, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            if ($json === false) {
+                echo json_encode(['ok' => false, 'error' => 'JSON invalid pentru semne-de-carte'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            $tmp = $bookmarksFile . '.tmp';
+            $ok = @file_put_contents($tmp, $json . "\n", LOCK_EX);
+            if ($ok === false || !@rename($tmp, $bookmarksFile)) {
+                @unlink($tmp);
+                echo json_encode(['ok' => false, 'error' => 'Nu pot scrie semne-de-carte.json'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'file' => $bookmarksFile, 'bookmarks' => (object) $bookmarks], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        echo json_encode(['ok' => false, 'error' => 'Metoda neacceptata'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'findpath') {
         $name = basename(str_replace('\\', '/', isset($_GET['name']) ? $_GET['name'] : ''));
         $size = isset($_GET['size']) ? (int) $_GET['size'] : -1;
@@ -748,6 +786,25 @@ if (isset($_GET['action'])) {
 
         .topbtn.primary:hover {
             background: #0e6b0e;
+        }
+
+        .topbtn.bookmark-btn {
+            min-width: 36px;
+            padding-left: 8px;
+            padding-right: 8px;
+            background: #b91c1c;
+            border-color: #7f1d1d;
+            font-weight: 800;
+            letter-spacing: .3px;
+        }
+
+        .topbtn.bookmark-btn.has-bookmark {
+            background: #047857;
+            border-color: #065f46;
+        }
+
+        .topbtn.bookmark-btn:hover {
+            filter: brightness(1.08);
         }
 
         /* ── Ribbon ── */
@@ -1091,6 +1148,7 @@ if (isset($_GET['action'])) {
 
         /* ── Editor canvas ── */
         .canvas {
+            position: relative;
             flex: 1;
             overflow: auto;
             padding: 24px;
@@ -1099,6 +1157,27 @@ if (isset($_GET['action'])) {
             align-items: center;
             background: #edebe9;
             scroll-behavior: smooth;
+        }
+
+        .bookmark-marker {
+            position: absolute;
+            z-index: 80;
+            display: none;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #b91c1c;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
+            color: #fff;
+            font: 800 13px/18px "Segoe UI", Tahoma, sans-serif;
+            text-align: center;
+            pointer-events: none;
+            user-select: none;
+        }
+
+        .bookmark-marker.show {
+            display: block;
         }
 
         /* wrapper editabil care contine paginile A4 (ca in MS Word) */
@@ -2284,6 +2363,7 @@ if (isset($_GET['action'])) {
         <span id="fileName" style="display:none"></span>
         <button class="topbtn" onclick="showOverlay()" title="Deschide alt fisier">＋ Deschide</button>
         <button class="topbtn" onclick="openCompareDialog()" title="Compara doua documente">Compare</button>
+        <button class="topbtn bookmark-btn" id="bookmarkBtn" onclick="toggleBookmark(event)" title="Semn de carte">T</button>
         <button class="topbtn" onclick="closeActiveTab()" title="Inchide tab-ul curent">Inchide tab</button>
         <button class="topbtn primary" onclick="saveDocx()">💾 Salveaza (Ctrl+S)</button>
         <button class="topbtn" onclick="closeApplication()" title="Iesire cu confirmare salvare">Iesire</button>
@@ -2465,6 +2545,7 @@ if (isset($_GET['action'])) {
         </div>
         <div class="canvas" id="canvas">
             <div id="pages" contenteditable="true" spellcheck="false"></div>
+            <div id="bookmarkMarker" class="bookmark-marker" contenteditable="false" aria-hidden="true">T</div>
             <div id="pdfPages"></div>
         </div>
     </div>
@@ -2887,7 +2968,7 @@ if (isset($_GET['action'])) {
             if (!blocks.length) {
                 // pagină goală cu un paragraf gol → se poate scrie direct (fără text-placeholder)
                 const s = makeSheet(); s.innerHTML = '<p><br></p>'; page.appendChild(s);
-                numberInfo(); updateWordCount(); return;
+                numberInfo(); updateWordCount(); updateBookmarkUi(); return;
             }
 
             // FAZA 1 — masoara intr-o coala-proba (off-screen, inaltime auto)
@@ -2934,7 +3015,7 @@ if (isset($_GET['action'])) {
                 page.querySelectorAll('.page').forEach(sh => { if (!sh.childNodes.length) sh.remove(); });
             }
 
-            numberInfo(); updateWordCount();
+            numberInfo(); updateWordCount(); updateBookmarkUi();
         }
 
         function getDocHtml() {
@@ -3678,6 +3759,53 @@ if (isset($_GET['action'])) {
         const UNDO_MAX = 60;
         function curTab() { return tabs.find(t => t.id === activeId) || null; }
 
+        let editorSavedRange = null;
+        function selectionRangeInsidePage() {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return null;
+            const range = sel.getRangeAt(0);
+            return (page.contains(range.startContainer) && page.contains(range.endContainer)) ? range : null;
+        }
+        function saveEditorSelection() {
+            const range = selectionRangeInsidePage();
+            if (range) editorSavedRange = range.cloneRange();
+            return !!range;
+        }
+        function restoreEditorSelection() {
+            if (!editorSavedRange) return false;
+            try {
+                if (!page.contains(editorSavedRange.startContainer) || !page.contains(editorSavedRange.endContainer)) {
+                    editorSavedRange = null;
+                    return false;
+                }
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(editorSavedRange.cloneRange());
+                return true;
+            } catch (e) {
+                editorSavedRange = null;
+                return false;
+            }
+        }
+        function focusPageNoJump() {
+            const sx = canvasEl.scrollLeft, sy = canvasEl.scrollTop;
+            try { page.focus({ preventScroll: true }); }
+            catch (e) { page.focus(); }
+            canvasEl.scrollLeft = sx;
+            canvasEl.scrollTop = sy;
+        }
+        document.addEventListener('selectionchange', () => { saveEditorSelection(); });
+        const ribbonEl = document.getElementById('ribbon');
+        if (ribbonEl) {
+            ribbonEl.addEventListener('mousedown', e => {
+                const target = e.target && e.target.nodeType === 1 ? e.target : e.target.parentElement;
+                const btn = target ? target.closest('button') : null;
+                if (!btn || !ribbonEl.contains(btn)) return;
+                saveEditorSelection();
+                e.preventDefault();
+            }, true);
+        }
+
         // poziția caretului ca offset de caractere de la începutul documentului (robust la re-paginare)
         function caretOffset() {
             const sel = window.getSelection();
@@ -3736,8 +3864,14 @@ if (isset($_GET['action'])) {
         }
         function recordUndo() { pushState(); typingActive = false; }   // operații discrete (butoane)
         function runCmd(fn) {            // execCommand + înregistrare ca un singur pas
+            restoreEditorSelection();
             recordUndo(); suppressSnap = true;
-            try { page.focus(); fn(); } finally { suppressSnap = false; }
+            try {
+                focusPageNoJump();
+                restoreEditorSelection();
+                fn();
+                saveEditorSelection();
+            } finally { suppressSnap = false; }
             refreshActive(); updateWordCount();
         }
         function doUndo() {
@@ -3762,8 +3896,34 @@ if (isset($_GET['action'])) {
         });
 
         // ── Editing commands ──
-        function focusPage() { page.focus(); }
+        function focusPage() { focusPageNoJump(); }
+        const ALIGN_COMMANDS = {
+            justifyLeft: 'left',
+            justifyCenter: 'center',
+            justifyRight: 'right',
+            justifyFull: 'justify'
+        };
+        function setParagraphAlignment(value) {
+            restoreEditorSelection();
+            const blocks = blocksInSelection();
+            if (!blocks.length) { toast('Pune cursorul in paragraful de aliniat'); return; }
+            const keepRange = selectionRangeInsidePage();
+            recordUndo(); suppressSnap = true;
+            try {
+                blocks.forEach(b => { b.style.textAlign = value === 'left' ? '' : value; });
+            } finally { suppressSnap = false; }
+            if (keepRange) {
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(keepRange.cloneRange());
+                saveEditorSelection();
+            }
+            if (blocks[0] && blocks[0].scrollIntoView) blocks[0].scrollIntoView({ block: 'nearest' });
+            appCloseApproved = false;
+            refreshActive(); updateWordCount(); scheduleAutoBackup();
+        }
         function cmd(name, val = null) {
+            if (ALIGN_COMMANDS[name]) { setParagraphAlignment(ALIGN_COMMANDS[name]); return; }
             runCmd(() => document.execCommand(name, false, val === null ? undefined : val));
         }
         function setFont(f) { cmd('fontName', f); }
@@ -4313,6 +4473,15 @@ if (isset($_GET['action'])) {
                 .forEach(([c, id]) => {
                     try { document.getElementById(id).classList.toggle('active', document.queryCommandState(c)); } catch (e) { }
                 });
+            const blk = getBlock() || (editorSavedRange ? blockOf(editorSavedRange.startContainer) : null);
+            if (blk) {
+                const align = normalizeTextAlign(getComputedStyle(blk).textAlign) || 'left';
+                [['al_left', 'left'], ['al_center', 'center'], ['al_right', 'right'], ['al_just', 'justify']]
+                    .forEach(([id, val]) => {
+                        const el = document.getElementById(id);
+                        if (el) el.classList.toggle('active', align === val);
+                    });
+            }
         }
 
         // ── Insert helpers ──
@@ -4365,18 +4534,43 @@ if (isset($_GET['action'])) {
         function disarmPainter() { painter = null; document.getElementById('btnPainter').classList.remove('active'); }
         function toggleFormatPainter() {
             if (painter) { disarmPainter(); toast('Format Painter oprit'); return; }
+            restoreEditorSelection();
             const sel = window.getSelection();
             let n = sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
             if (n && n.nodeType === 3) n = n.parentNode;
             if (!n || !page.contains(n)) { toast('Pune cursorul/selectează în textul-sursă, apoi click pe Format'); return; }
             const cs = getComputedStyle(n);
+            const sourceBlock = blockOf(n);
+            const bcs = sourceBlock ? getComputedStyle(sourceBlock) : null;
             painter = {
                 fontFamily: cs.fontFamily, fontSize: cs.fontSize, color: cs.color,
                 fontWeight: cs.fontWeight, fontStyle: cs.fontStyle,
-                textDecoration: cs.textDecorationLine, background: cs.backgroundColor
+                textDecoration: cs.textDecorationLine, background: cs.backgroundColor,
+                textAlign: normalizeTextAlign(bcs ? bcs.textAlign : '')
             };
             document.getElementById('btnPainter').classList.add('active');
             toast('Stil copiat — click pe paragraf SAU selectează doar câteva cuvinte');
+        }
+        function normalizeTextAlign(value) {
+            const v = String(value || '').toLowerCase();
+            if (v === 'center' || v === 'right' || v === 'justify') return v;
+            if (v === 'end' || v === '-webkit-right') return 'right';
+            if (v === 'left' || v === 'start' || v === '-webkit-left') return 'left';
+            return '';
+        }
+        function applyPainterBlockStyle(block) {
+            if (!block || !painter || !painter.textAlign) return;
+            block.style.textAlign = painter.textAlign === 'left' ? '' : painter.textAlign;
+        }
+        function placeCaretAtBlockEnd(block) {
+            if (!block) return;
+            const range = document.createRange();
+            range.selectNodeContents(block);
+            range.collapse(false);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            saveEditorSelection();
         }
         function painterCss() {
             let c = 'font-family:' + painter.fontFamily + ';font-size:' + painter.fontSize + ';color:' + painter.color
@@ -4428,17 +4622,24 @@ if (isset($_GET['action'])) {
             if (!sel.rangeCount || !page.contains(sel.getRangeAt(0).startContainer)) { disarmPainter(); return false; }
             let range = sel.getRangeAt(0);
             const useSel = selectionOnly && !range.collapsed && sel.toString().trim().length > 0;
+            let targetBlocks = [];
             if (!useSel) {
                 const blk = getBlock(); if (!blk) { disarmPainter(); return false; }
+                targetBlocks = [blk];
                 range = document.createRange(); range.selectNodeContents(blk);
             } else {
                 clampRangeToPage(range);   // dacă selecția a depășit zona editabilă (ex: bara de jos), o limităm la document
             }
             recordUndo();   // Format Painter modifică direct DOM-ul → înregistrează pentru undo
+            if (useSel && !targetBlocks.length) targetBlocks = blocksInRange(range);
+            targetBlocks.forEach(applyPainterBlockStyle);
             wrapRangeTextNodes(range);
+            const keepBlock = targetBlocks[targetBlocks.length - 1] || blockOf(range.startContainer);
             disarmPainter();
-            sel.removeAllRanges();
+            placeCaretAtBlockEnd(keepBlock);
+            appCloseApproved = false;
             updateWordCount();
+            scheduleAutoBackup();
             toast(useSel ? 'Format aplicat pe selecție' : 'Format aplicat pe paragraf');
             return true;
         }
@@ -4479,11 +4680,12 @@ if (isset($_GET['action'])) {
         }
         page.addEventListener('input', () => {
             appCloseApproved = false;
+            saveEditorSelection();
             updateWordCount();
             refreshActive();
             scheduleAutoBackup();
         });
-        page.addEventListener('keyup', refreshActive);
+        page.addEventListener('keyup', () => { saveEditorSelection(); refreshActive(); });
 
         // ── Format Painter: detectează click vs tragere (select) ──
         let painterDown = null;
@@ -4600,6 +4802,7 @@ if (isset($_GET['action'])) {
                 const t = curTab();
                 if (t) { t.savedHtml = inner; t.html = inner; t.path = j.file; t.ext = 'docx'; t.file = j.file; }
                 renderTabs();
+                updateBookmarkUi();
                 return true;
             }
             toast(j.error || 'Eroare salvare');
@@ -5340,6 +5543,7 @@ if (isset($_GET['action'])) {
             else { t.html = html; t.savedHtml = html; t.ext = ext; t.isPdf = !!isPdf; t.undo = []; t.redo = []; t.handle = null; }
             activeId = t.id;
             renderTabs();
+            updateBookmarkUi();
         }
         // un tab e „murdar" daca textul curent difera de cel salvat/deschis (baseline)
         function isTabDirty(t) {
@@ -5453,6 +5657,187 @@ if (isset($_GET['action'])) {
                 navigator.sendBeacon(api('action=autobackup'), fd);
             });
         }
+
+        let bookmarkStore = {};
+        let bookmarkStoreLoaded = false;
+        let bookmarkSaveTimer = null;
+
+        function normalizeBookmarkKey(path) {
+            return String(path || '').replace(/\\/g, '/').trim().toLocaleLowerCase();
+        }
+        function activeBookmarkPath() {
+            const t = curTab();
+            return (t && (t.path || t.file)) || currentFile || '';
+        }
+        function activeBookmarkKey() {
+            return normalizeBookmarkKey(activeBookmarkPath());
+        }
+        function bookmarkBlocks() {
+            return [...page.querySelectorAll('.page p,.page h1,.page h2,.page h3,.page h4,.page h5,.page h6,.page li,.page blockquote,.page pre')];
+        }
+        function bookmarkTextSample(block) {
+            return String(block ? block.textContent : '').replace(/\s+/g, ' ').trim().slice(0, 180);
+        }
+        function bookmarkPageNumber(block) {
+            const sheet = block ? block.closest('.page') : null;
+            if (!sheet) return 1;
+            return [...page.querySelectorAll('.page')].indexOf(sheet) + 1;
+        }
+        function blockNearViewportCenter() {
+            const blocks = bookmarkBlocks();
+            if (!blocks.length) return null;
+            const cr = canvasEl.getBoundingClientRect();
+            const centerY = cr.top + cr.height * 0.38;
+            let best = blocks[0], bestDist = Infinity;
+            blocks.forEach(block => {
+                const r = block.getBoundingClientRect();
+                if (r.bottom < cr.top || r.top > cr.bottom) return;
+                const dist = Math.abs((r.top + Math.min(r.height, 40) / 2) - centerY);
+                if (dist < bestDist) { best = block; bestDist = dist; }
+            });
+            return best;
+        }
+        function currentBookmarkBlock() {
+            const sel = window.getSelection();
+            if (sel.rangeCount && page.contains(sel.getRangeAt(0).startContainer)) {
+                const blk = blockOf(sel.getRangeAt(0).startContainer);
+                if (blk) return blk;
+            }
+            return blockNearViewportCenter();
+        }
+        function activeBookmark() {
+            const key = activeBookmarkKey();
+            return key ? bookmarkStore[key] : null;
+        }
+        function findBookmarkBlock(bookmark) {
+            const blocks = bookmarkBlocks();
+            if (!bookmark || !blocks.length) return null;
+            const idx = Number.isFinite(bookmark.blockIndex) ? bookmark.blockIndex : parseInt(bookmark.blockIndex, 10);
+            const sample = String(bookmark.sample || '').replace(/\s+/g, ' ').trim();
+            if (Number.isFinite(idx) && blocks[idx]) {
+                if (!sample || bookmarkTextSample(blocks[idx]) === sample || bookmarkTextSample(blocks[idx]).indexOf(sample.slice(0, 80)) === 0) return blocks[idx];
+            }
+            if (sample) {
+                const exact = blocks.find(b => bookmarkTextSample(b) === sample);
+                if (exact) return exact;
+                const head = sample.slice(0, 80);
+                if (head) {
+                    const partial = blocks.find(b => bookmarkTextSample(b).indexOf(head) !== -1);
+                    if (partial) return partial;
+                }
+            }
+            return Number.isFinite(idx) ? (blocks[idx] || null) : null;
+        }
+        async function loadBookmarksFile() {
+            try {
+                const r = await fetch(api('action=bookmarks'), { cache: 'no-store' });
+                const j = await r.json();
+                if (j && j.ok && j.bookmarks && typeof j.bookmarks === 'object') bookmarkStore = Array.isArray(j.bookmarks) ? {} : j.bookmarks;
+                bookmarkStoreLoaded = true;
+                updateBookmarkUi();
+            } catch (e) {
+                console.warn('Bookmarks:', e);
+                bookmarkStoreLoaded = true;
+                updateBookmarkUi();
+            }
+        }
+        function saveBookmarksFileSoon() {
+            clearTimeout(bookmarkSaveTimer);
+            bookmarkSaveTimer = setTimeout(saveBookmarksFile, 250);
+        }
+        async function saveBookmarksFile() {
+            try {
+                const r = await fetch(api('action=bookmarks'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ bookmarks: bookmarkStore })
+                });
+                const j = await r.json();
+                if (!j.ok) throw new Error(j.error || 'salvare semne esuata');
+            } catch (e) {
+                console.warn('Bookmarks save:', e);
+                toast('Nu pot salva semnul de carte');
+            }
+        }
+        function setBookmarkHere() {
+            const key = activeBookmarkKey();
+            const source = activeBookmarkPath();
+            if (!key) { toast('Deschide sau salveaza un fisier inainte de semn de carte'); return; }
+            const block = currentBookmarkBlock();
+            if (!block) { toast('Nu gasesc paragraful curent'); return; }
+            const blocks = bookmarkBlocks();
+            const pageNo = bookmarkPageNumber(block);
+            bookmarkStore[key] = {
+                file: source,
+                blockIndex: Math.max(0, blocks.indexOf(block)),
+                page: pageNo,
+                sample: bookmarkTextSample(block),
+                scrollTop: Math.max(0, Math.round(canvasEl.scrollTop)),
+                updatedAt: new Date().toISOString()
+            };
+            saveBookmarksFileSoon();
+            updateBookmarkUi();
+            toast('Semn de carte pus la pagina ' + pageNo);
+        }
+        function scrollToBookmark(bookmark) {
+            const block = findBookmarkBlock(bookmark);
+            if (!block) {
+                canvasEl.scrollTo({ top: Math.max(0, bookmark && bookmark.scrollTop ? bookmark.scrollTop : 0), behavior: 'smooth' });
+                toast('Am mers la pozitia aproximativa a semnului');
+                setTimeout(updateBookmarkUi, 350);
+                return;
+            }
+            const cr = canvasEl.getBoundingClientRect();
+            const br = block.getBoundingClientRect();
+            const top = canvasEl.scrollTop + br.top - cr.top - canvasEl.clientHeight * 0.32;
+            canvasEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+            const range = document.createRange();
+            range.selectNodeContents(block);
+            range.collapse(true);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            saveEditorSelection();
+            toast('Semn de carte: pagina ' + (bookmark.page || bookmarkPageNumber(block)));
+            setTimeout(updateBookmarkUi, 350);
+        }
+        function toggleBookmark(e) {
+            const bookmark = activeBookmark();
+            if (!bookmark || (e && (e.ctrlKey || e.shiftKey))) setBookmarkHere();
+            else scrollToBookmark(bookmark);
+        }
+        function positionBookmarkMarker(block) {
+            const marker = document.getElementById('bookmarkMarker');
+            if (!marker || !block) return false;
+            const sheet = block.closest('.page');
+            if (!sheet) return false;
+            const cr = canvasEl.getBoundingClientRect();
+            const br = block.getBoundingClientRect();
+            const sr = sheet.getBoundingClientRect();
+            marker.style.top = Math.max(0, canvasEl.scrollTop + br.top - cr.top - 3) + 'px';
+            marker.style.left = Math.max(4, canvasEl.scrollLeft + sr.left - cr.left - 30) + 'px';
+            marker.classList.add('show');
+            return true;
+        }
+        function updateBookmarkUi() {
+            const btn = document.getElementById('bookmarkBtn');
+            const marker = document.getElementById('bookmarkMarker');
+            const bookmark = activeBookmark();
+            const has = !!bookmark;
+            if (btn) {
+                btn.classList.toggle('has-bookmark', has);
+                btn.textContent = has ? '||' : 'T';
+                btn.title = has
+                    ? 'Semn de carte existent: click ca sa mergi acolo. Ctrl/Shift+click muta semnul aici.'
+                    : 'Nu exista semn de carte pentru fisierul curent: click ca sa-l pui aici.';
+            }
+            if (marker) marker.classList.remove('show');
+            if (!has || !bookmarkStoreLoaded) return;
+            const block = findBookmarkBlock(bookmark);
+            if (block) positionBookmarkMarker(block);
+        }
+        window.addEventListener('resize', () => updateBookmarkUi());
+
         function renderTabs() {
             const bar = document.getElementById('tabBar');
             bar.innerHTML = '';
@@ -5481,7 +5866,7 @@ if (isset($_GET['action'])) {
             document.getElementById('pdfPages').style.display = 'none';
             setDocHtml(t.html || '');
             if (t.isPdf && t.path) loadPdf(api('action=raw&file=' + encodeURIComponent(t.path)));
-            renderTabs(); updateWordCount();
+            renderTabs(); updateWordCount(); updateBookmarkUi();
             setInfo('Tab: ' + (t.file || '').split('/').pop());
         }
         async function closeTab(id) {
@@ -5510,7 +5895,7 @@ if (isset($_GET['action'])) {
                     activeId = null; currentFile = null; currentExt = null; setDocHtml('');
                     document.getElementById('stMode').textContent = '—'; renderTabs(); showOverlay();
                 }
-            } else renderTabs();
+            } else { renderTabs(); updateBookmarkUi(); }
         }
         async function closeUntabbedDocument() {
             if (!hasUntabbedDirtyDoc()) { showOverlay(); return; }
@@ -5747,6 +6132,10 @@ if (isset($_GET['action'])) {
             else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); doRedo(); }
             else if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); openFindReplace('find'); }
             else if (e.ctrlKey && e.key.toLowerCase() === 'h') { e.preventDefault(); openFindReplace('replace'); }
+            else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'l') { e.preventDefault(); cmd('justifyLeft'); }
+            else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') { e.preventDefault(); cmd('justifyCenter'); }
+            else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'r') { e.preventDefault(); cmd('justifyRight'); }
+            else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j') { e.preventDefault(); cmd('justifyFull'); }
             // F3 = următorul rezultat (Shift+F3 = anteriorul); ascunde fereastra de căutare
             else if (e.key === 'F3') {
                 e.preventDefault();
@@ -5798,6 +6187,7 @@ if (isset($_GET['action'])) {
         // ── Init ──
         buildDiac();
         loadDexUserWordsFile().then(() => { if (dexOn) runDexCheck(); });
+        loadBookmarksFile();
         // Enter în câmpurile de căutare → caută / înlocuiește
         document.getElementById('frFind').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); frFindNext(e.shiftKey); } });
         document.getElementById('frReplace').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); frReplace(); } });

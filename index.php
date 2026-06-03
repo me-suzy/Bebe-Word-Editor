@@ -1742,6 +1742,12 @@ if (isset($_GET['action'])) {
             background: rgba(34, 197, 94, .10);
         }
 
+        .compare-result-card.hide-diacritics .compare-word-diff,
+        .compare-result-card.hide-diacritics .compare-word-diac {
+            text-decoration: none;
+            background: transparent;
+        }
+
         .compare-word-text {
             text-decoration-color: #dc2626;
             background: rgba(239, 68, 68, .12);
@@ -2759,6 +2765,7 @@ if (isset($_GET['action'])) {
                 <span class="compare-result-meta" id="compareResultMeta"></span>
                 <span class="spacer"></span>
                 <button type="button" id="compareAlignBtn" onclick="toggleCompareParagraphAlign()">Aliniere paragrafe: ON</button>
+                <button type="button" id="compareDiacriticsBtn" onclick="toggleCompareDiacritics()">Diacritice: ON</button>
                 <button type="button" id="compareSyncBtn" onclick="toggleCompareScrollSyncMode()">Scroll legat: ON</button>
                 <button type="button" onclick="openCompareDialog(true)">Compara alte fisiere</button>
                 <button type="button" onclick="closeCompareResult()">Inchide</button>
@@ -2986,7 +2993,7 @@ if (isset($_GET['action'])) {
 
         // ── Compare documents ──
         const compareState = { a: null, b: null };
-        const compareViewState = { alignParagraphs: true, syncScroll: true };
+        const compareViewState = { alignParagraphs: true, showDiacritics: true, syncScroll: true };
 
         function openCompareDialog(keepResultOpen) {
             document.getElementById('compareOverlay').classList.add('open');
@@ -3362,21 +3369,33 @@ if (isset($_GET['action'])) {
 
         function updateCompareViewButtons() {
             const alignBtn = document.getElementById('compareAlignBtn');
+            const diacriticsBtn = document.getElementById('compareDiacriticsBtn');
             const syncBtn = document.getElementById('compareSyncBtn');
+            const card = document.querySelector('#compareResultOverlay .compare-result-card');
             if (alignBtn) {
                 alignBtn.textContent = 'Aliniere paragrafe: ' + (compareViewState.alignParagraphs ? 'ON' : 'OFF');
                 alignBtn.classList.toggle('active', compareViewState.alignParagraphs);
+            }
+            if (diacriticsBtn) {
+                diacriticsBtn.textContent = 'Diacritice: ' + (compareViewState.showDiacritics ? 'ON' : 'OFF');
+                diacriticsBtn.classList.toggle('active', compareViewState.showDiacritics);
             }
             if (syncBtn) {
                 syncBtn.textContent = 'Scroll legat: ' + (compareViewState.syncScroll ? 'ON' : 'OFF');
                 syncBtn.classList.toggle('active', compareViewState.syncScroll);
             }
+            if (card) card.classList.toggle('hide-diacritics', !compareViewState.showDiacritics);
         }
 
         function toggleCompareParagraphAlign() {
             compareViewState.alignParagraphs = !compareViewState.alignParagraphs;
             updateCompareViewButtons();
             scheduleCompareBlockAlignment();
+        }
+
+        function toggleCompareDiacritics() {
+            compareViewState.showDiacritics = !compareViewState.showDiacritics;
+            updateCompareViewButtons();
         }
 
         function toggleCompareScrollSyncMode() {

@@ -1172,7 +1172,8 @@ if (isset($_GET['action'])) {
             color: #fff;
             font: 800 13px/18px "Segoe UI", Tahoma, sans-serif;
             text-align: center;
-            pointer-events: none;
+            cursor: pointer;
+            pointer-events: auto;
             user-select: none;
         }
 
@@ -4779,36 +4780,44 @@ if (isset($_GET['action'])) {
             return await postSavebin(target, b64, inner);
         }
         // POST la savebin + parsare SIGURĂ (text→JSON), ca să nu crape pe warning-uri HTML
-        async function postSavebin(target, b64, inner) {
-            setInfo('Se salvează…');
+        async function postSavebin(target, b64, inner, options = {}) {
+            const silent = !!options.silent;
+            if (!silent) setInfo('Se salveaza...');
             const fd = new FormData(); fd.append('file', target); fd.append('content', b64);
             let txt;
             try {
                 const r = await fetch(api('action=savebin'), { method: 'POST', body: fd });
                 txt = await r.text();
-            } catch (e) { toast('Eroare rețea la salvare: ' + e.message); setInfo('Eroare salvare'); return false; }
+            } catch (e) {
+                if (!silent) { toast('Eroare retea la salvare: ' + e.message); setInfo('Eroare salvare'); }
+                return silent ? { ok: false, error: e.message } : false;
+            }
             let j;
             try { j = JSON.parse(txt); }
             catch (e) {
-                console.error('Răspuns savebin neașteptat:', txt);
-                toast('Eroare salvare: răspuns invalid de la server');
-                setInfo('Eroare salvare'); return false;
+                console.error('Raspuns savebin neasteptat:', txt);
+                if (!silent) { toast('Eroare salvare: raspuns invalid de la server'); setInfo('Eroare salvare'); }
+                return silent ? { ok: false, error: 'raspuns invalid de la server' } : false;
             }
             if (j.ok) {
-                toast('Salvat: ' + j.file.split('/').pop() + ' (' + j.bytes + ' B)');
-                setInfo('Salvat ' + new Date().toLocaleTimeString());
-                currentFile = j.file; currentExt = 'docx';
-                document.getElementById('fileName').textContent = j.file;
-                const t = curTab();
-                if (t) { t.savedHtml = inner; t.html = inner; t.path = j.file; t.ext = 'docx'; t.file = j.file; }
-                renderTabs();
-                updateBookmarkUi();
-                return true;
+                if (!silent) {
+                    toast('Salvat: ' + j.file.split('/').pop() + ' (' + j.bytes + ' B)');
+                    setInfo('Salvat ' + new Date().toLocaleTimeString());
+                }
+                if (!options.auto) {
+                    currentFile = j.file; currentExt = 'docx';
+                    document.getElementById('fileName').textContent = j.file;
+                    const t = curTab();
+                    if (t) { t.savedHtml = inner; t.html = inner; t.path = j.file; t.ext = 'docx'; t.file = j.file; }
+                    renderTabs();
+                    updateBookmarkUi();
+                }
+                return silent ? j : true;
             }
-            toast(j.error || 'Eroare salvare');
+            if (!silent) toast(j.error || 'Eroare salvare');
             if (j.detail) console.warn('savebin detail:', j.detail);
-            setInfo('Eroare salvare');
-            return false;
+            if (!silent) setInfo('Eroare salvare');
+            return silent ? j : false;
         }
         function blobToBase64(blob) {
             return new Promise((res) => {
@@ -5567,8 +5576,8 @@ if (isset($_GET['action'])) {
             syncActiveTab();
             return tabs.some(t => isTabDirty(t)) || hasUntabbedDirtyDoc();
         }
-        const AUTO_BACKUP_INTERVAL_MS = 120000; // 2 minute
-        const AUTO_BACKUP_FIRST_DELAY_MS = 12000; // primul backup dupa editare apare repede
+        const AUTO_BACKUP_INTERVAL_MS = 60000; // 1 minut
+        const AUTO_BACKUP_FIRST_DELAY_MS = 60000;
         let autoBackupBusy = false;
         let autoBackupTimer = null;
         const autoBackupHashes = new Map();
@@ -5593,8 +5602,12 @@ if (isset($_GET['action'])) {
                 if (!isTabDirty(t) || isEmptyDocHtml(html)) return;
                 out.push({
                     key: 'tab-' + t.id,
+                    tabId: t.id,
                     fileName: autoBackupBaseName(t.file || t.path || 'document nou.docx'),
                     source: t.path || '',
+                    ext: t.ext || '',
+                    path: t.path || '',
+                    handle: t.handle || null,
                     html
                 });
             });
@@ -5618,6 +5631,56 @@ if (isset($_GET['action'])) {
             if (!j.ok) throw new Error(j.error || 'autobackup esuat');
             return j;
         }
+        function autoSaveTarget(entry) {
+            let target = entry.path || entry.source || '';
+            if (!target) return '';
+            if (entry.ext && entry.ext !== 'docx') {
+                target = target.replace(/\.(pdf|odt|doc)$/i, '.docx');
+                if (!/\.docx$/i.test(target)) target += '.docx';
+            }
+            return target;
+        }
+        async function postAutoSaveDisk(entry) {
+            const blob = makeDocxBlob(entry.html);
+            if (!blob) return { ok: false, skipped: true, reason: 'html-docx-js lipsa' };
+
+            const target = autoSaveTarget(entry);
+            if (target) {
+                const b64 = await blobToBase64(blob);
+                const j = await postSavebin(target, b64, entry.html, { silent: true, auto: true });
+                return j && j.ok ? { ok: true, file: j.file || target } : { ok: false, error: (j && j.error) || 'autosave esuat' };
+            }
+
+            if (entry.handle) {
+                try {
+                    if (!await ensureWritable(entry.handle)) return { ok: false, error: 'Permisiune de scriere refuzata' };
+                    const w = await entry.handle.createWritable();
+                    await w.write(blob);
+                    await w.close();
+                    return { ok: true, handleSaved: true };
+                } catch (e) {
+                    return { ok: false, error: e.message || 'autosave handle esuat' };
+                }
+            }
+
+            return { ok: false, skipped: true, reason: 'fara cale pe disc' };
+        }
+        function markEntryAutoSaved(entry, file) {
+            const t = tabs.find(x => x.id === entry.tabId);
+            if (t) {
+                t.savedHtml = entry.html;
+                t.html = entry.html;
+                if (file) { t.path = file; t.file = file; t.ext = 'docx'; }
+            }
+            if (t && t.id === activeId) {
+                currentFile = t.path || currentFile;
+                currentExt = 'docx';
+                if (currentFile) document.getElementById('fileName').textContent = currentFile;
+            }
+            if (file) recordRecent({ path: file, name: file.split(/[\\/]/).pop(), ext: 'docx' });
+            renderTabs();
+            updateBookmarkUi();
+        }
         async function autoBackupNow(force = false) {
             if (autoBackupBusy) return;
             const entries = autoBackupEntries()
@@ -5626,14 +5689,23 @@ if (isset($_GET['action'])) {
             if (!entries.length) return;
             autoBackupBusy = true;
             try {
-                let saved = 0, lastFile = '';
+                let saved = 0, diskSaved = 0, lastFile = '';
                 for (const entry of entries) {
                     const j = await postAutoBackup(entry);
-                    autoBackupHashes.set(entry.key, entry.hash);
                     saved++;
                     lastFile = j.file || lastFile;
+                    const disk = await postAutoSaveDisk(entry);
+                    if (disk.ok) {
+                        diskSaved++;
+                        markEntryAutoSaved(entry, disk.file);
+                        autoBackupHashes.set(entry.key, entry.hash);
+                    } else if (disk.skipped) {
+                        autoBackupHashes.set(entry.key, entry.hash);
+                    } else {
+                        console.warn('AutoSave HDD:', disk.error || disk.reason || disk);
+                    }
                 }
-                if (saved) setInfo('Backup Temp ' + new Date().toLocaleTimeString());
+                if (saved) setInfo((diskSaved ? 'Autosave HDD + Temp ' : 'Backup Temp ') + new Date().toLocaleTimeString());
                 if (lastFile) console.info('AutoBackup:', lastFile);
             } catch (e) {
                 console.warn('AutoBackup:', e);
@@ -5779,6 +5851,14 @@ if (isset($_GET['action'])) {
             updateBookmarkUi();
             toast('Semn de carte pus la pagina ' + pageNo);
         }
+        function clearBookmark() {
+            const key = activeBookmarkKey();
+            if (!key || !bookmarkStore[key]) { updateBookmarkUi(); return; }
+            delete bookmarkStore[key];
+            saveBookmarksFileSoon();
+            updateBookmarkUi();
+            toast('Semn de carte sters');
+        }
         function scrollToBookmark(bookmark) {
             const block = findBookmarkBlock(bookmark);
             if (!block) {
@@ -5803,8 +5883,13 @@ if (isset($_GET['action'])) {
         }
         function toggleBookmark(e) {
             const bookmark = activeBookmark();
-            if (!bookmark || (e && (e.ctrlKey || e.shiftKey))) setBookmarkHere();
-            else scrollToBookmark(bookmark);
+            if (!bookmark) { setBookmarkHere(); return; }
+            scrollToBookmark(bookmark);
+        }
+        function bookmarkMarkerDoubleClick(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            clearBookmark();
         }
         function positionBookmarkMarker(block) {
             const marker = document.getElementById('bookmarkMarker');
@@ -5816,6 +5901,7 @@ if (isset($_GET['action'])) {
             const sr = sheet.getBoundingClientRect();
             marker.style.top = Math.max(0, canvasEl.scrollTop + br.top - cr.top - 3) + 'px';
             marker.style.left = Math.max(4, canvasEl.scrollLeft + sr.left - cr.left - 30) + 'px';
+            marker.title = 'Dublu click ca sa stergi semnul de carte';
             marker.classList.add('show');
             return true;
         }
@@ -5828,7 +5914,7 @@ if (isset($_GET['action'])) {
                 btn.classList.toggle('has-bookmark', has);
                 btn.textContent = has ? '||' : 'T';
                 btn.title = has
-                    ? 'Semn de carte existent: click ca sa mergi acolo. Ctrl/Shift+click muta semnul aici.'
+                    ? 'Semn de carte existent: click ca sa mergi acolo. Dublu click pe markerul T din document sterge semnul.'
                     : 'Nu exista semn de carte pentru fisierul curent: click ca sa-l pui aici.';
             }
             if (marker) marker.classList.remove('show');
@@ -6188,6 +6274,7 @@ if (isset($_GET['action'])) {
         buildDiac();
         loadDexUserWordsFile().then(() => { if (dexOn) runDexCheck(); });
         loadBookmarksFile();
+        document.getElementById('bookmarkMarker').addEventListener('dblclick', bookmarkMarkerDoubleClick);
         // Enter în câmpurile de căutare → caută / înlocuiește
         document.getElementById('frFind').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); frFindNext(e.shiftKey); } });
         document.getElementById('frReplace').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); frReplace(); } });

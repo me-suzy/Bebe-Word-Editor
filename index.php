@@ -1,9 +1,10 @@
 <?php
 // ─────────────────────────────────────────────────────────────────────────────
-// Word Editor — editor de documente (docx / doc / odt / pdf) cu toolbar tip Word.
+// Word Editor — editor de documente (docx / doc / odt / rtf / pdf) cu toolbar tip Word.
 // Inspirat din "index V.4.php" (Mini Dreamweaver), dar dedicat fisierelor office.
 //   • docx  → deschis client-side cu mammoth.js  → editabil → salvat cu html-docx-js
 //   • odt   → convertit server-side (zip + content.xml) → editabil → salvat ca .docx
+//   • rtf   → convertit server-side minimal → editabil → salvat ca .docx
 //   • pdf   → randat cu pdf.js; text extras pentru editare → salvat ca .docx
 //   • doc   → binar vechi: doar avertisment (recomanda conversie in .docx)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,7 +12,7 @@
 $ROOT = 'e:/Carte/'; // folder de lucru implicit (poti deschide si dupa cale absoluta)
 mb_internal_encoding('UTF-8');
 
-$ALLOWED_EXT = ['docx', 'doc', 'odt', 'pdf'];
+$ALLOWED_EXT = ['docx', 'doc', 'odt', 'rtf', 'pdf'];
 
 function resolve_path($p, $ROOT)
 {
@@ -239,6 +240,61 @@ function docx_to_html($path)
     return $html;
 }
 
+function twips_to_cm($twips)
+{
+    return round(((float) $twips / 1440.0) * 2.54, 3);
+}
+
+function docx_page_layout($path)
+{
+    if (!class_exists('ZipArchive'))
+        return null;
+    $zip = new ZipArchive();
+    if ($zip->open($path) !== true)
+        return null;
+    $xml = $zip->getFromName('word/document.xml');
+    $zip->close();
+    if ($xml === false)
+        return null;
+
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $ok = $dom->loadXML($xml);
+    libxml_clear_errors();
+    if (!$ok)
+        return null;
+
+    $xp = new DOMXPath($dom);
+    $xp->registerNamespace('w', W_NS);
+    $sects = $xp->query('//w:sectPr');
+    if (!$sects || !$sects->length)
+        return null;
+    $sect = $sects->item($sects->length - 1);
+    $pgSz = $xp->query('w:pgSz', $sect)->item(0);
+    $pgMar = $xp->query('w:pgMar', $sect)->item(0);
+    if (!$pgSz)
+        return null;
+
+    $w = (int) $pgSz->getAttributeNS(W_NS, 'w');
+    $h = (int) $pgSz->getAttributeNS(W_NS, 'h');
+    if ($w <= 0 || $h <= 0)
+        return null;
+
+    $top = $pgMar ? (int) $pgMar->getAttributeNS(W_NS, 'top') : 1440;
+    $right = $pgMar ? (int) $pgMar->getAttributeNS(W_NS, 'right') : 1440;
+    $bottom = $pgMar ? (int) $pgMar->getAttributeNS(W_NS, 'bottom') : 1440;
+    $left = $pgMar ? (int) $pgMar->getAttributeNS(W_NS, 'left') : 1440;
+
+    return [
+        'widthCm' => twips_to_cm($w),
+        'heightCm' => twips_to_cm($h),
+        'topCm' => twips_to_cm($top),
+        'rightCm' => twips_to_cm($right),
+        'bottomCm' => twips_to_cm($bottom),
+        'leftCm' => twips_to_cm($left),
+    ];
+}
+
 // ─── ODT → HTML (minimal): citeste content.xml din arhiva zip si mapeaza ─────────
 function odt_to_html($path)
 {
@@ -302,6 +358,135 @@ function odt_to_html($path)
     return $walk($body);
 }
 
+function rtf_codepoint_to_utf8($n)
+{
+    $n = (int) $n;
+    if ($n < 0) $n += 65536;
+    return html_entity_decode('&#' . $n . ';', ENT_NOQUOTES, 'UTF-8');
+}
+
+function rtf_byte_to_utf8($byte, $encoding)
+{
+    $ch = chr($byte & 0xFF);
+    if ($encoding === 'UTF-8') return $ch;
+    $out = @mb_convert_encoding($ch, 'UTF-8', $encoding);
+    return $out === false ? '' : $out;
+}
+
+function rtf_text_to_html($text)
+{
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $text = preg_replace("/[ \t]+\n/u", "\n", $text);
+    $text = preg_replace("/\n{3,}/u", "\n\n", $text);
+    $text = trim($text);
+    if ($text === '') return '<p><br></p>';
+    $paras = preg_split("/\n{2,}/u", $text);
+    $html = '';
+    foreach ($paras as $p) {
+        $p = trim($p);
+        if ($p === '') { $html .= '<p><br></p>'; continue; }
+        $p = htmlspecialchars($p, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $p = str_replace("\t", '&nbsp;&nbsp;&nbsp;&nbsp;', $p);
+        $p = nl2br($p, false);
+        $html .= '<p>' . $p . '</p>';
+    }
+    return $html;
+}
+
+function rtf_to_html($path)
+{
+    $rtf = @file_get_contents($path);
+    if ($rtf === false) return false;
+    if (strpos($rtf, '{\\rtf') !== 0 && strpos(ltrim($rtf), '{\\rtf') !== 0) return false;
+
+    $encoding = 'Windows-1252';
+    if (preg_match('/\\\\ansicpg(\d+)/', $rtf, $m)) {
+        $cp = (int) $m[1];
+        $map = [1250 => 'Windows-1250', 1251 => 'Windows-1251', 1252 => 'Windows-1252', 1257 => 'Windows-1257', 28592 => 'ISO-8859-2', 65001 => 'UTF-8'];
+        $encoding = $map[$cp] ?? ('Windows-' . $cp);
+    }
+
+    $destinations = [
+        'fonttbl' => true, 'colortbl' => true, 'stylesheet' => true, 'info' => true,
+        'pict' => true, 'object' => true, 'header' => true, 'footer' => true,
+        'footnote' => true, 'annotation' => true, 'generator' => true, 'datafield' => true,
+        'fldinst' => true, 'filetbl' => true, 'listtable' => true, 'listoverridetable' => true,
+        'revtbl' => true, 'xmlnstbl' => true, 'pntext' => true, 'themedata' => true,
+        'colorschememapping' => true, 'latentstyles' => true, 'datastore' => true,
+    ];
+
+    $state = ['ignore' => false, 'uc' => 1];
+    $stack = [];
+    $out = '';
+    $skip = 0;
+    $binSkip = 0;
+    $len = strlen($rtf);
+
+    for ($i = 0; $i < $len; $i++) {
+        if ($binSkip > 0) { $binSkip--; continue; }
+        $ch = $rtf[$i];
+        if ($ch === '{') { $stack[] = $state; continue; }
+        if ($ch === '}') { $state = array_pop($stack) ?: ['ignore' => false, 'uc' => 1]; continue; }
+
+        if ($ch === '\\') {
+            if ($i + 1 >= $len) break;
+            $next = $rtf[++$i];
+            if ($next === "'" && $i + 2 < $len) {
+                $hex = substr($rtf, $i + 1, 2);
+                $i += 2;
+                if ($skip > 0) { $skip--; continue; }
+                if (!$state['ignore'] && preg_match('/^[0-9a-fA-F]{2}$/', $hex)) $out .= rtf_byte_to_utf8(hexdec($hex), $encoding);
+                continue;
+            }
+            if (!ctype_alpha($next)) {
+                if ($next === '*') { $state['ignore'] = true; continue; }
+                if ($skip > 0) { $skip--; continue; }
+                if ($state['ignore']) continue;
+                if ($next === '~') $out .= ' ';
+                elseif ($next === '_') $out .= '-';
+                elseif ($next === '{' || $next === '}' || $next === '\\') $out .= $next;
+                continue;
+            }
+
+            $word = $next;
+            while ($i + 1 < $len && ctype_alpha($rtf[$i + 1])) $word .= $rtf[++$i];
+            $sign = 1;
+            if ($i + 1 < $len && $rtf[$i + 1] === '-') { $sign = -1; $i++; }
+            $num = '';
+            while ($i + 1 < $len && ctype_digit($rtf[$i + 1])) $num .= $rtf[++$i];
+            $param = $num === '' ? null : ($sign * (int) $num);
+            if ($i + 1 < $len && $rtf[$i + 1] === ' ') $i++;
+
+            if (isset($destinations[$word])) { $state['ignore'] = true; continue; }
+            if ($word === 'uc' && $param !== null) { $state['uc'] = max(0, $param); continue; }
+            if ($word === 'bin' && $param !== null) { $binSkip = max(0, $param); continue; }
+            if ($state['ignore']) continue;
+
+            if ($word === 'u' && $param !== null) { $out .= rtf_codepoint_to_utf8($param); $skip = $state['uc']; continue; }
+            if ($word === 'par' || $word === 'sect' || $word === 'page') { $out .= "\n\n"; continue; }
+            if ($word === 'line') { $out .= "\n"; continue; }
+            if ($word === 'tab') { $out .= "\t"; continue; }
+            if ($word === 'emdash') { $out .= '—'; continue; }
+            if ($word === 'endash') { $out .= '–'; continue; }
+            if ($word === 'bullet') { $out .= '• '; continue; }
+            if ($word === 'lquote') { $out .= '‘'; continue; }
+            if ($word === 'rquote') { $out .= '’'; continue; }
+            if ($word === 'ldblquote') { $out .= '“'; continue; }
+            if ($word === 'rdblquote') { $out .= '”'; continue; }
+            continue;
+        }
+
+        if ($skip > 0) { $skip--; continue; }
+        if ($state['ignore']) continue;
+        $ord = ord($ch);
+        if ($ord === 0) continue;
+        if ($ord < 128) $out .= $ch;
+        else $out .= rtf_byte_to_utf8($ord, $encoding);
+    }
+
+    return rtf_text_to_html($out);
+}
+
 // ─── API ─────────────────────────────────────────────────────────────────────
 if (isset($_GET['action'])) {
     $action = $_GET['action'];
@@ -325,6 +510,7 @@ if (isset($_GET['action'])) {
             'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'doc' => 'application/msword',
             'odt' => 'application/vnd.oasis.opendocument.text',
+            'rtf' => 'application/rtf',
             'pdf' => 'application/pdf',
         ];
         header('Content-Type: ' . ($mimes[$ext] ?? 'application/octet-stream'));
@@ -521,7 +707,7 @@ if (isset($_GET['action'])) {
             echo json_encode(['ok' => true, 'ole2' => true, 'file' => $name]);
             exit;
         }
-        echo json_encode(['ok' => true, 'html' => $html, 'file' => $name], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['ok' => true, 'html' => $html, 'file' => $name, 'layout' => docx_page_layout($full)], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -543,6 +729,29 @@ if (isset($_GET['action'])) {
             exit;
         }
         echo json_encode(['ok' => true, 'html' => $html, 'file' => $full], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($action === 'rtf2html') {
+        // suporta si upload prin drag&drop ($_FILES['f']) pe langa cale (?file=)
+        if (isset($_FILES['f']) && is_uploaded_file($_FILES['f']['tmp_name'])) {
+            $full = $_FILES['f']['tmp_name'];
+            $name = $_FILES['f']['name'];
+        } else {
+            $file = isset($_GET['file']) ? $_GET['file'] : '';
+            $full = resolve_path($file, $ROOT);
+            $name = $full;
+        }
+        if (!file_exists($full)) {
+            echo json_encode(['ok' => false, 'error' => 'Fisierul nu exista']);
+            exit;
+        }
+        $html = rtf_to_html($full);
+        if ($html === false) {
+            echo json_encode(['ok' => false, 'error' => 'Nu pot citi RTF']);
+            exit;
+        }
+        echo json_encode(['ok' => true, 'html' => $html, 'file' => $name], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -704,8 +913,10 @@ if (isset($_GET['action'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Word Editor — docx / odt / pdf</title>
-    <link rel="icon" href="../favicon.ico">
+    <title>Word Editor — docx / odt / rtf / pdf</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="icon" type="image/png" sizes="256x256" href="favicon-256.png">
     <style>
         * {
             box-sizing: border-box;
@@ -717,6 +928,12 @@ if (isset($_GET['action'])) {
             --accent: #2b579a;
             --accent-light: #c7d6ea;
             --btn-hover: #e1dfdd;
+            --page-width: 21.59cm;
+            --page-height: 27.94cm;
+            --page-margin-top: 2.54cm;
+            --page-margin-right: 2.54cm;
+            --page-margin-bottom: 2.54cm;
+            --page-margin-left: 2.54cm;
         }
 
         html,
@@ -743,12 +960,6 @@ if (isset($_GET['action'])) {
             padding: 4px 10px;
             background: var(--accent);
             color: #fff;
-        }
-
-        .topbar .brand {
-            font-weight: 700;
-            font-size: 14px;
-            letter-spacing: .3px;
         }
 
         .topbar .file-name {
@@ -1163,8 +1374,10 @@ if (isset($_GET['action'])) {
             position: absolute;
             z-index: 80;
             display: none;
-            width: 22px;
+            min-width: 22px;
+            width: auto;
             height: 22px;
+            padding: 0 5px;
             border-radius: 50%;
             background: #b91c1c;
             border: 2px solid #fff;
@@ -1189,16 +1402,19 @@ if (isset($_GET['action'])) {
             gap: 24px;
             outline: none;
             counter-reset: pg;
-            width: 21cm;
+            width: var(--page-width);
             max-width: 100%;
         }
 
         .page {
             position: relative;
             background: #fff;
-            width: 21cm;
-            min-height: 29.7cm;
-            padding: 2.2cm 2cm 2cm;
+            width: var(--page-width);
+            height: var(--page-height);
+            min-height: var(--page-height);
+            flex: 0 0 auto;
+            overflow: hidden;
+            padding: var(--page-margin-top) var(--page-margin-right) var(--page-margin-bottom) var(--page-margin-left);
             box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
             outline: none;
             color: #000;
@@ -1211,7 +1427,7 @@ if (isset($_GET['action'])) {
             counter-increment: pg;
             content: "Pag. " counter(pg);
             position: absolute;
-            right: 2cm;
+            right: var(--page-margin-right);
             bottom: .7cm;
             font-size: 9pt;
             color: #b3b1ae;
@@ -2359,7 +2575,6 @@ if (isset($_GET['action'])) {
     <!-- TOP BAR -->
     <div class="topbar">
         <button class="topbtn" onclick="toggleSidebar()" title="Arata/ascunde fisierele">☰</button>
-        <div class="brand">📄 Word Editor</div>
         <div id="tabBar"></div>
         <span id="fileName" style="display:none"></span>
         <button class="topbtn" onclick="showOverlay()" title="Deschide alt fisier">＋ Deschide</button>
@@ -2562,7 +2777,7 @@ if (isset($_GET['action'])) {
     <div class="overlay" id="startOverlay">
         <div class="overlay-card">
             <div class="overlay-title">Deschide un document</div>
-            <div class="overlay-sub">Scrie calea completă, trage un fișier (docx · doc · odt · pdf), sau click pe zona de mai jos.</div>
+            <div class="overlay-sub">Scrie calea completă, trage un fișier (docx · doc · odt · rtf · pdf), sau click pe zona de mai jos.</div>
             <div class="overlay-path">
                 <input type="text" id="ovPathInput" placeholder="Ex: e:/Carte/.../document.docx"
                     onkeydown="if(event.key==='Enter'){event.preventDefault();openFromOverlayPath();}">
@@ -2572,14 +2787,14 @@ if (isset($_GET['action'])) {
                 <div class="drop-zone" id="dropZone" onclick="pickFile()">
                     <div class="big">📄⤓</div>
                     <div class="lbl">Drag &amp; Drop fișier aici</div>
-                    <div class="hint">sau click pentru a alege un fișier (.docx .doc .odt .pdf)</div>
+                    <div class="hint">sau click pentru a alege un fișier (.docx .doc .odt .rtf .pdf)</div>
                 </div>
                 <div class="recent-panel" id="recentPanel" style="display:none">
                     <h5>Fișiere recente</h5>
                     <div id="recentList"></div>
                 </div>
             </div>
-            <input type="file" id="filePicker" accept=".docx,.doc,.odt,.pdf" style="display:none"
+            <input type="file" id="filePicker" accept=".docx,.doc,.odt,.rtf,.pdf" style="display:none"
                 onchange="if(this.files[0]) openDroppedFile(this.files[0]); this.value='';">
             <div class="overlay-actions">
                 <button onclick="hideOverlay()">Continuă la editor</button>
@@ -2835,8 +3050,8 @@ if (isset($_GET['action'])) {
                 <button type="button" onclick="closeCompareDialog()">Cancel</button>
                 <button type="button" class="primary" id="compareOkBtn" onclick="runCompareDocs()">OK</button>
             </div>
-            <input type="file" id="compareFileA" accept=".docx,.odt,.pdf" style="display:none" onchange="handleCompareFile('a', this.files[0]); this.value='';">
-            <input type="file" id="compareFileB" accept=".docx,.odt,.pdf" style="display:none" onchange="handleCompareFile('b', this.files[0]); this.value='';">
+            <input type="file" id="compareFileA" accept=".docx,.odt,.rtf,.pdf" style="display:none" onchange="handleCompareFile('a', this.files[0]); this.value='';">
+            <input type="file" id="compareFileB" accept=".docx,.odt,.rtf,.pdf" style="display:none" onchange="handleCompareFile('b', this.files[0]); this.value='';">
         </div>
     </div>
 
@@ -2875,7 +3090,7 @@ if (isset($_GET['action'])) {
         <button type="button" onclick="hideDexContextMenu()">Inchide</button>
     </div>
 
-    <!-- Libs: html-docx-js (html→docx la salvare), pdf.js (randare PDF). DOCX/ODT se convertesc server-side. -->
+    <!-- Libs: html-docx-js (html→docx la salvare), pdf.js (randare PDF). ODT/RTF se convertesc server-side. -->
     <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
@@ -2890,7 +3105,56 @@ if (isset($_GET['action'])) {
 
         // ── Paginare tip MS Word: imparte continutul in coli A4 separate ──
         const CM = 96 / 2.54;                  // px / cm la 96dpi
-        const PAGE_LIMIT = (29.7 - 2.0) * CM;  // y maxim (de la marginea de sus a colii) unde se poate termina continutul
+        const DEFAULT_PAGE_LAYOUT = Object.freeze({
+            widthCm: 21.59,
+            heightCm: 27.94,
+            topCm: 2.54,
+            rightCm: 2.54,
+            bottomCm: 2.54,
+            leftCm: 2.54
+        });
+        let currentPageLayout = { ...DEFAULT_PAGE_LAYOUT };
+
+        function clonePageLayout(layout) {
+            return Object.assign({}, DEFAULT_PAGE_LAYOUT, layout || {});
+        }
+        function normalizePageLayout(layout) {
+            const out = clonePageLayout(layout);
+            const sane = (v, fallback, min, max) => {
+                v = Number(v);
+                return Number.isFinite(v) && v >= min && v <= max ? v : fallback;
+            };
+            out.widthCm = sane(out.widthCm, DEFAULT_PAGE_LAYOUT.widthCm, 8, 60);
+            out.heightCm = sane(out.heightCm, DEFAULT_PAGE_LAYOUT.heightCm, 8, 80);
+            out.topCm = sane(out.topCm, DEFAULT_PAGE_LAYOUT.topCm, 0.2, 10);
+            out.rightCm = sane(out.rightCm, DEFAULT_PAGE_LAYOUT.rightCm, 0.2, 10);
+            out.bottomCm = sane(out.bottomCm, DEFAULT_PAGE_LAYOUT.bottomCm, 0.2, 10);
+            out.leftCm = sane(out.leftCm, DEFAULT_PAGE_LAYOUT.leftCm, 0.2, 10);
+            if (out.topCm + out.bottomCm > out.heightCm - 2) {
+                out.topCm = DEFAULT_PAGE_LAYOUT.topCm;
+                out.bottomCm = DEFAULT_PAGE_LAYOUT.bottomCm;
+            }
+            if (out.leftCm + out.rightCm > out.widthCm - 2) {
+                out.leftCm = DEFAULT_PAGE_LAYOUT.leftCm;
+                out.rightCm = DEFAULT_PAGE_LAYOUT.rightCm;
+            }
+            return out;
+        }
+        function applyPageLayout(layout) {
+            currentPageLayout = normalizePageLayout(layout);
+            page.style.setProperty('--page-width', currentPageLayout.widthCm + 'cm');
+            page.style.setProperty('--page-height', currentPageLayout.heightCm + 'cm');
+            page.style.setProperty('--page-margin-top', currentPageLayout.topCm + 'cm');
+            page.style.setProperty('--page-margin-right', currentPageLayout.rightCm + 'cm');
+            page.style.setProperty('--page-margin-bottom', currentPageLayout.bottomCm + 'cm');
+            page.style.setProperty('--page-margin-left', currentPageLayout.leftCm + 'cm');
+        }
+        function pageLimitPx() {
+            return (currentPageLayout.heightCm - currentPageLayout.bottomCm) * CM;
+        }
+        function usablePagePx() {
+            return Math.max(1, currentPageLayout.heightCm - currentPageLayout.topCm - currentPageLayout.bottomCm) * CM;
+        }
 
         function makeSheet() { const d = document.createElement('div'); d.className = 'page'; return d; }
 
@@ -2903,7 +3167,7 @@ if (isset($_GET['action'])) {
                 const r = document.createRange(); r.selectNode(last);
                 bottom = r.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top;
             }
-            return bottom > PAGE_LIMIT;
+            return bottom > pageLimitPx();
         }
 
         function prependTo(parent, node) {
@@ -2927,7 +3191,7 @@ if (isset($_GET['action'])) {
             let bottom;
             if (last.nodeType === 1) bottom = last.offsetTop + last.offsetHeight;
             else { const r = document.createRange(); r.selectNode(last); bottom = r.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top; }
-            return bottom - PAGE_LIMIT;
+            return bottom - pageLimitPx();
         }
         // Imparte un bloc prea inalt: muta coada in "remainder" in loturi proportionale
         // cu depasirea (putine reflow-uri, in loc de unul per cuvant).
@@ -2948,9 +3212,6 @@ if (isset($_GET['action'])) {
             }
             return rem.childNodes.length ? rem : null;
         }
-
-        // Inaltimea utila de continut a unei coli (sub padding-top, peste padding-bottom)
-        const USABLE = (29.7 - 2.2 - 2.0) * CM;
 
         // Paginare RAPIDA: masoara toate blocurile o singura data intr-o coala-proba
         // (1 reflow), apoi imparte pe pagini matematic — fara reflow per bloc.
@@ -2974,7 +3235,7 @@ if (isset($_GET['action'])) {
 
             // FAZA 1 — masoara intr-o coala-proba (off-screen, inaltime auto)
             const probe = makeSheet();
-            probe.style.cssText = 'min-height:0;visibility:hidden;position:absolute;left:-99999px;top:0';
+            probe.style.cssText = 'height:auto;min-height:0;overflow:visible;visibility:hidden;position:absolute;left:-99999px;top:0';
             page.appendChild(probe);
             blocks.forEach(b => probe.appendChild(b));
             const measured = blocks.map(b => ({ node: b, top: b.offsetTop, h: b.offsetHeight }));  // 1 reflow
@@ -2983,19 +3244,18 @@ if (isset($_GET['action'])) {
             // FAZA 2 — imparte pe coli dupa pozitiile masurate (fara reflow)
             let sheet = makeSheet(); page.appendChild(sheet);
             let pageStart = measured.length ? measured[0].top : 0;
-            let tooTall = false;
+            const usable = usablePagePx();
             for (const m of measured) {
-                if (m.h > USABLE) tooTall = true;
-                if (sheet.childNodes.length > 0 && (m.top - pageStart) + m.h > USABLE) {
+                if (sheet.childNodes.length > 0 && (m.top - pageStart) + m.h > usable) {
                     sheet = makeSheet(); page.appendChild(sheet);
                     pageStart = m.top;
                 }
                 sheet.appendChild(m.node);
             }
 
-            // FAZA 3 — corectie DOAR daca exista blocuri mai inalte decat o pagina
-            // (rar: paragrafe uriase). Sparge la nivel de cuvant.
-            if (tooTall) {
+            // FAZA 3 - corectie finala: muta blocurile care depasesc pagina urmatoare.
+            // Pentru un paragraf mai inalt decat pagina, sparge la nivel de cuvant.
+            {
                 let s = page.firstElementChild;
                 let guard = 0;
                 while (s && guard++ < 100000) {
@@ -3019,11 +3279,14 @@ if (isset($_GET['action'])) {
             numberInfo(); updateWordCount(); updateBookmarkUi();
         }
 
-        function getDocHtml() {
+        function getDocHtml(options = {}) {
             const sheets = page.querySelectorAll('.page');
             let html = sheets.length ? Array.from(sheets).map(s => s.innerHTML).join('\n') : page.innerHTML;
             // scoate sublinierile DEX (sunt doar marcaje vizuale, nu fac parte din document)
             if (html.indexOf('dex-bad') !== -1) html = html.replace(/<span class="dex-bad">([\s\S]*?)<\/span>/g, '$1');
+            if (!options.keepCaretMarker && html.indexOf('data-page-caret-marker') !== -1) {
+                html = html.replace(/<span[^>]*data-page-caret-marker="1"[^>]*>[\s\S]*?<\/span>/g, '');
+            }
             return html;
         }
 
@@ -3031,6 +3294,85 @@ if (isset($_GET['action'])) {
             const h = getDocHtml();
             setInfo('Se paginează…');
             setTimeout(() => { setDocHtml(h); setInfo('Paginat ' + page.querySelectorAll('.page').length + ' coli'); }, 10);
+        }
+
+        let autoRepaginateTimer = null;
+        let autoRepaginating = false;
+        function insertPaginationCaretMarker() {
+            restoreEditorSelection();
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return false;
+            const range = sel.getRangeAt(0);
+            if (!page.contains(range.startContainer)) return false;
+            const marker = document.createElement('span');
+            marker.setAttribute('data-page-caret-marker', '1');
+            marker.appendChild(document.createTextNode('\uFEFF'));
+            const r = range.cloneRange();
+            r.collapse(true);
+            r.insertNode(marker);
+            return true;
+        }
+        function restorePaginationCaretMarker(savedScroll) {
+            const marker = page.querySelector('span[data-page-caret-marker="1"]');
+            if (!marker) {
+                canvasEl.scrollTop = savedScroll;
+                return false;
+            }
+            const parent = marker.parentNode;
+            const index = parent ? Array.prototype.indexOf.call(parent.childNodes, marker) : 0;
+            marker.remove();
+            if (parent && parent.nodeType === 1 && !parent.childNodes.length) {
+                parent.appendChild(document.createElement('br'));
+            }
+            const range = document.createRange();
+            if (parent && page.contains(parent)) {
+                range.setStart(parent, Math.max(0, Math.min(index, parent.childNodes.length)));
+            } else {
+                range.selectNodeContents(page);
+                range.collapse(false);
+            }
+            range.collapse(true);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            saveEditorSelection();
+            const host = parent && parent.nodeType === 1 ? parent : null;
+            canvasEl.scrollTop = savedScroll;
+            if (host && host.scrollIntoView) {
+                const cr = canvasEl.getBoundingClientRect();
+                const hr = host.getBoundingClientRect();
+                if (hr.top < cr.top + 20 || hr.bottom > cr.bottom - 20) host.scrollIntoView({ block: 'nearest' });
+            }
+            return true;
+        }
+        function editorNeedsRepaginate() {
+            const sheets = [...page.querySelectorAll('.page')];
+            if (!sheets.length) return true;
+            return sheets.some(s => overflows(s));
+        }
+        function scheduleEditorRepaginate(delay = 320) {
+            if (autoRepaginating) return;
+            clearTimeout(autoRepaginateTimer);
+            autoRepaginateTimer = setTimeout(autoRepaginateAfterEdit, delay);
+        }
+        function scheduleEditorRepaginateIfNeeded(delay = 80) {
+            if (editorNeedsRepaginate()) scheduleEditorRepaginate(delay);
+            else clearTimeout(autoRepaginateTimer);
+        }
+        function autoRepaginateAfterEdit() {
+            if (autoRepaginating) return;
+            if (document.getElementById('pdfPages').style.display !== 'none') return;
+            autoRepaginating = true;
+            const savedScroll = canvasEl.scrollTop;
+            const hadMarker = insertPaginationCaretMarker();
+            const html = getDocHtml({ keepCaretMarker: hadMarker });
+            setDocHtml(html);
+            if (hadMarker) restorePaginationCaretMarker(savedScroll);
+            else canvasEl.scrollTop = savedScroll;
+            autoRepaginating = false;
+            updatePageStatus();
+            setInfo('Paginat ' + page.querySelectorAll('.page').length + ' coli');
+            if (dexOn) setTimeout(runDexCheck, 120);
         }
 
         let pageCount = 1;
@@ -3099,8 +3441,8 @@ if (isset($_GET['action'])) {
         function handleCompareFile(side, file) {
             if (!file) return;
             const ext = (file.name.split('.').pop() || '').toLowerCase();
-            if (!['docx', 'odt', 'pdf'].includes(ext)) {
-                toast('Compare suportă momentan .docx, .odt și .pdf');
+            if (!['docx', 'odt', 'rtf', 'pdf'].includes(ext)) {
+                toast('Compare suporta .docx, .odt, .rtf si .pdf');
                 return;
             }
             compareState[side] = file;
@@ -3170,6 +3512,12 @@ if (isset($_GET['action'])) {
                 const fd = new FormData(); fd.append('f', file);
                 const j = await (await fetch(api('action=odt2html'), { method: 'POST', body: fd })).json();
                 if (!j.ok) throw new Error(j.error || 'Nu pot converti ODT');
+                return { name: file.name, blocks: htmlToCompareBlocks(j.html || '') };
+            }
+            if (ext === 'rtf') {
+                const fd = new FormData(); fd.append('f', file);
+                const j = await (await fetch(api('action=rtf2html'), { method: 'POST', body: fd })).json();
+                if (!j.ok) throw new Error(j.error || 'Nu pot converti RTF');
                 return { name: file.name, blocks: htmlToCompareBlocks(j.html || '') };
             }
             if (ext === 'pdf') {
@@ -3580,7 +3928,8 @@ if (isset($_GET['action'])) {
                         : it.type === 'dir' ? '📁'
                             : it.ext === 'pdf' ? '📕'
                                 : it.ext === 'odt' ? '📘'
-                                    : '📄';
+                                    : it.ext === 'rtf' ? '📃'
+                                        : '📄';
                     el.innerHTML = '<span class="ico">' + ico + '</span>' + escapeHtml(it.name);
                     el.title = it.path || it.name;
                     if (it.type === 'dir') el.onclick = () => loadFileList(it.path);
@@ -3588,7 +3937,7 @@ if (isset($_GET['action'])) {
                     box.appendChild(el);
                 });
                 if (!j.items || !j.items.length) {
-                    box.innerHTML += '<div style="color:#a19f9d;padding:6px">(gol — niciun docx/odt/pdf sau subfolder)</div>';
+                    box.innerHTML += '<div style="color:#a19f9d;padding:6px">(gol — niciun docx/odt/rtf/pdf sau subfolder)</div>';
                 }
             } catch (e) {
                 toast('Eroare listare: ' + e.message);
@@ -3604,7 +3953,7 @@ if (isset($_GET['action'])) {
             hdr.style.display = 'block';
             items.slice(0, 8).forEach(e => {
                 const ext = (e.ext || e.name.split('.').pop() || '').toLowerCase();
-                const ico = ext === 'pdf' ? '📕' : ext === 'odt' ? '📘' : '📄';
+                const ico = ext === 'pdf' ? '📕' : ext === 'odt' ? '📘' : ext === 'rtf' ? '📃' : '📄';
                 const el = document.createElement('div'); el.className = 'file-item'; el.title = e.path || e.name;
                 el.innerHTML = '<span class="ico">' + ico + '</span>' + escapeHtml(e.name);
                 el.onclick = () => e.path ? openFile(e.path, ext) : reopenDropped(e.name);
@@ -3635,9 +3984,13 @@ if (isset($_GET['action'])) {
                     const j = await (await fetch(api('action=docx2html&file=' + encodeURIComponent(path)))).json();
                     if (!j.ok) throw new Error(j.error);
                     if (j.ole2) { renderDoc(OLE2_MSG); afterOpen(path, 'doc', path); return; }
-                    renderDoc(j.html || '<p><br></p>'); afterOpen(path, ext, path);
+                    renderDoc(j.html || '<p><br></p>', j.layout); afterOpen(path, ext, path, false, j.layout);
                 } else if (ext === 'odt') {
                     const j = await (await fetch(api('action=odt2html&file=' + encodeURIComponent(path)))).json();
+                    if (!j.ok) throw new Error(j.error);
+                    renderDoc(j.html || '<p><br></p>'); afterOpen(j.file || path, ext, path);
+                } else if (ext === 'rtf') {
+                    const j = await (await fetch(api('action=rtf2html&file=' + encodeURIComponent(path)))).json();
                     if (!j.ok) throw new Error(j.error);
                     renderDoc(j.html || '<p><br></p>'); afterOpen(j.file || path, ext, path);
                 } else if (ext === 'pdf') {
@@ -3665,7 +4018,7 @@ if (isset($_GET['action'])) {
                     const j = await (await fetch(api('action=docx2html'), { method: 'POST', body: fd })).json();
                     if (!j.ok) throw new Error(j.error);
                     if (j.ole2) { renderDoc(OLE2_MSG); afterOpen(file.name, 'doc', null); return; }
-                    renderDoc(j.html || '<p><br></p>'); afterOpen(file.name, ext, null); attach();
+                    renderDoc(j.html || '<p><br></p>', j.layout); afterOpen(file.name, ext, null, false, j.layout); attach();
                     await resolveDroppedPath(file, ext);   // află calea reală pe disc → overwrite la save
                 } else if (ext === 'pdf') {
                     const buf = await file.arrayBuffer();
@@ -3674,6 +4027,11 @@ if (isset($_GET['action'])) {
                 } else if (ext === 'odt') {
                     const fd = new FormData(); fd.append('f', file);
                     const j = await (await fetch(api('action=odt2html'), { method: 'POST', body: fd })).json();
+                    if (!j.ok) throw new Error(j.error);
+                    renderDoc(j.html || '<p><br></p>'); afterOpen(file.name, ext, null);
+                } else if (ext === 'rtf') {
+                    const fd = new FormData(); fd.append('f', file);
+                    const j = await (await fetch(api('action=rtf2html'), { method: 'POST', body: fd })).json();
                     if (!j.ok) throw new Error(j.error);
                     renderDoc(j.html || '<p><br></p>'); afterOpen(file.name, ext, null);
                 } else if (ext === 'doc') {
@@ -3704,18 +4062,19 @@ if (isset($_GET['action'])) {
         }
 
         // randeaza continut docx/odt (non-pdf) si ascunde randarea pdf
-        function renderDoc(html) {
+        function renderDoc(html, layout = null) {
             document.getElementById('pdfPages').innerHTML = '';
             document.getElementById('pdfPages').style.display = 'none';
+            applyPageLayout(layout || DEFAULT_PAGE_LAYOUT);
             setDocHtml(html);
         }
 
         // creeaza/actualizeaza tab-ul si seteaza starea curenta
-        function afterOpen(file, ext, path, isPdf) {
+        function afterOpen(file, ext, path, isPdf, layout = null) {
             currentFile = path; currentExt = ext;
             document.getElementById('stMode').textContent = (ext || '').toUpperCase();
             setInfo('Deschis');
-            registerOpenedTab(file, ext, path, !!isPdf);
+            registerOpenedTab(file, ext, path, !!isPdf, layout || currentPageLayout);
             // istoric: fisiere cu cale (reopenabile) → localStorage; drag&drop → cache de sesiune
             if (path) recordRecent({ path, name: file.split(/[\\/]/).pop(), ext });
             else recordRecent({ path: null, name: file, ext, isPdf: !!isPdf, html: getDocHtml() });
@@ -4680,13 +5039,21 @@ if (isset($_GET['action'])) {
             document.getElementById('stWords').textContent = w + ' cuvinte';
         }
         page.addEventListener('input', () => {
+            if (autoRepaginating) return;
             appCloseApproved = false;
             saveEditorSelection();
             updateWordCount();
             refreshActive();
+            scheduleEditorRepaginateIfNeeded(80);
             scheduleAutoBackup();
         });
-        page.addEventListener('keyup', () => { saveEditorSelection(); refreshActive(); });
+        page.addEventListener('keyup', (e) => {
+            saveEditorSelection();
+            refreshActive();
+            if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') {
+                scheduleEditorRepaginateIfNeeded(80);
+            }
+        });
 
         // ── Format Painter: detectează click vs tragere (select) ──
         let painterDown = null;
@@ -4733,8 +5100,11 @@ if (isset($_GET['action'])) {
             return (await handle.requestPermission(opts)) === 'granted';
         }
         function makeDocxBlob(inner) {
+            const l = normalizePageLayout(currentPageLayout);
+            const pageCss = '@page{size:' + l.widthCm + 'cm ' + l.heightCm + 'cm;margin:'
+                + l.topCm + 'cm ' + l.rightCm + 'cm ' + l.bottomCm + 'cm ' + l.leftCm + 'cm;}';
             const full = '<!DOCTYPE html><html><head><meta charset="utf-8">'
-                + '<style>body{font-family:"Times New Roman",serif;font-size:12pt}</style></head><body>'
+                + '<style>' + pageCss + 'body{font-family:"Times New Roman",serif;font-size:12pt}</style></head><body>'
                 + inner + '</body></html>';
             return (typeof htmlDocx === 'undefined') ? null : htmlDocx.asBlob(full);
         }
@@ -4749,7 +5119,7 @@ if (isset($_GET['action'])) {
                 const b64 = await blobToBase64(blob);
                 let target = currentFile;
                 if (currentExt && currentExt !== 'docx') {
-                    target = target.replace(/\.(pdf|odt|doc)$/i, '.docx');
+                    target = target.replace(/\.(pdf|odt|rtf|doc)$/i, '.docx');
                     if (!/\.docx$/i.test(target)) target += '.docx';
                 }
                 return await postSavebin(target, b64, inner);
@@ -4774,7 +5144,7 @@ if (isset($_GET['action'])) {
             if (!target) return false;
             if (target === '__handle__') return saveDocx();   // handle setat de showSaveFilePicker → re-salvează prin el
             if (currentExt && currentExt !== 'docx') {
-                target = target.replace(/\.(pdf|odt|doc)$/i, '.docx');
+                target = target.replace(/\.(pdf|odt|rtf|doc)$/i, '.docx');
                 if (!/\.docx$/i.test(target)) target += '.docx';
             }
             return await postSavebin(target, b64, inner);
@@ -5545,11 +5915,12 @@ if (isset($_GET['action'])) {
         let activeId = null;
         let tabSeq = 0;
 
-        function registerOpenedTab(file, ext, path, isPdf) {
+        function registerOpenedTab(file, ext, path, isPdf, layout = null) {
             const html = getDocHtml();
             let t = tabs.find(x => (path && x.path === path) || (!path && x.file === file && !x.path));
-            if (!t) { t = { id: ++tabSeq, file, ext, path: path || null, isPdf: !!isPdf, html, savedHtml: html, undo: [], redo: [], handle: null }; tabs.push(t); }
-            else { t.html = html; t.savedHtml = html; t.ext = ext; t.isPdf = !!isPdf; t.undo = []; t.redo = []; t.handle = null; }
+            const pageLayout = clonePageLayout(layout || currentPageLayout);
+            if (!t) { t = { id: ++tabSeq, file, ext, path: path || null, isPdf: !!isPdf, html, savedHtml: html, undo: [], redo: [], handle: null, layout: pageLayout }; tabs.push(t); }
+            else { t.html = html; t.savedHtml = html; t.ext = ext; t.isPdf = !!isPdf; t.undo = []; t.redo = []; t.handle = null; t.layout = pageLayout; }
             activeId = t.id;
             renderTabs();
             updateBookmarkUi();
@@ -5562,7 +5933,7 @@ if (isset($_GET['action'])) {
         }
         function syncActiveTab() {
             const cur = tabs.find(t => t.id === activeId);
-            if (cur) cur.html = getDocHtml();
+            if (cur) { cur.html = getDocHtml(); cur.layout = clonePageLayout(currentPageLayout); }
             return cur;
         }
         function isEmptyDocHtml(html) {
@@ -5592,7 +5963,7 @@ if (isset($_GET['action'])) {
         }
         function autoBackupBaseName(name) {
             const raw = String(name || '').split(/[\\/]/).pop() || 'document nou.docx';
-            return raw.replace(/\.(docx|doc|odt|pdf|html?)$/i, '') + '.docx';
+            return raw.replace(/\.(docx|doc|odt|rtf|pdf|html?)$/i, '') + '.docx';
         }
         function autoBackupEntries() {
             syncActiveTab();
@@ -5635,7 +6006,7 @@ if (isset($_GET['action'])) {
             let target = entry.path || entry.source || '';
             if (!target) return '';
             if (entry.ext && entry.ext !== 'docx') {
-                target = target.replace(/\.(pdf|odt|doc)$/i, '.docx');
+                target = target.replace(/\.(pdf|odt|rtf|doc)$/i, '.docx');
                 if (!/\.docx$/i.test(target)) target += '.docx';
             }
             return target;
@@ -5777,9 +6148,51 @@ if (isset($_GET['action'])) {
             }
             return blockNearViewportCenter();
         }
-        function activeBookmark() {
+        let bookmarkCycleKey = '';
+        let bookmarkCycleIndex = -1;
+        function normalizeBookmarkList(raw) {
+            if (Array.isArray(raw)) return raw.filter(Boolean);
+            if (raw && Array.isArray(raw.items)) return raw.items.filter(Boolean);
+            if (raw && typeof raw === 'object' && ('blockIndex' in raw || 'sample' in raw || 'scrollTop' in raw)) return [raw];
+            return [];
+        }
+        function sortBookmarks(list) {
+            return list.slice().sort((a, b) => {
+                const ai = Number.isFinite(a.blockIndex) ? a.blockIndex : parseInt(a.blockIndex, 10);
+                const bi = Number.isFinite(b.blockIndex) ? b.blockIndex : parseInt(b.blockIndex, 10);
+                if ((ai || 0) !== (bi || 0)) return (ai || 0) - (bi || 0);
+                return (a.scrollTop || 0) - (b.scrollTop || 0);
+            });
+        }
+        function activeBookmarks() {
             const key = activeBookmarkKey();
-            return key ? bookmarkStore[key] : null;
+            if (!key) return [];
+            const list = sortBookmarks(normalizeBookmarkList(bookmarkStore[key]));
+            let changed = false;
+            list.forEach((b, idx) => {
+                if (!b.id) {
+                    b.id = 'bm-' + Date.now().toString(36) + '-' + idx + '-' + Math.random().toString(36).slice(2, 7);
+                    changed = true;
+                }
+            });
+            if (changed && list.length) bookmarkStore[key] = list;
+            return list;
+        }
+        function saveActiveBookmarks(list) {
+            const key = activeBookmarkKey();
+            if (!key) return;
+            const source = activeBookmarkPath();
+            const clean = sortBookmarks((list || []).filter(Boolean)).map((b, idx) => Object.assign({}, b, {
+                id: b.id || ('bm-' + Date.now().toString(36) + '-' + idx + '-' + Math.random().toString(36).slice(2, 7)),
+                file: b.file || source
+            }));
+            if (clean.length) bookmarkStore[key] = clean;
+            else delete bookmarkStore[key];
+            bookmarkCycleKey = key;
+            bookmarkCycleIndex = Math.min(bookmarkCycleIndex, clean.length - 1);
+        }
+        function activeBookmark() {
+            return activeBookmarks()[0] || null;
         }
         function findBookmarkBlock(bookmark) {
             const blocks = bookmarkBlocks();
@@ -5838,28 +6251,52 @@ if (isset($_GET['action'])) {
             const block = currentBookmarkBlock();
             if (!block) { toast('Nu gasesc paragraful curent'); return; }
             const blocks = bookmarkBlocks();
+            const list = activeBookmarks();
+            const blockIndex = Math.max(0, blocks.indexOf(block));
             const pageNo = bookmarkPageNumber(block);
-            bookmarkStore[key] = {
+            const item = {
+                id: 'bm-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
                 file: source,
-                blockIndex: Math.max(0, blocks.indexOf(block)),
+                blockIndex,
                 page: pageNo,
                 sample: bookmarkTextSample(block),
                 scrollTop: Math.max(0, Math.round(canvasEl.scrollTop)),
                 updatedAt: new Date().toISOString()
             };
+            const existing = list.findIndex(b => {
+                const bi = Number.isFinite(b.blockIndex) ? b.blockIndex : parseInt(b.blockIndex, 10);
+                return bi === blockIndex && (!b.sample || b.sample === item.sample);
+            });
+            if (existing >= 0) {
+                item.id = list[existing].id || item.id;
+                list[existing] = item;
+            } else {
+                list.push(item);
+            }
+            saveActiveBookmarks(list);
+            const savedList = activeBookmarks();
+            bookmarkCycleKey = key;
+            bookmarkCycleIndex = Math.max(0, savedList.findIndex(b => b.id === item.id));
             saveBookmarksFileSoon();
             updateBookmarkUi();
-            toast('Semn de carte pus la pagina ' + pageNo);
+            toast((existing >= 0 ? 'Semn de carte actualizat' : 'Semn de carte adaugat') + ' la pagina ' + pageNo);
         }
-        function clearBookmark() {
+        function clearBookmark(bookmarkId) {
             const key = activeBookmarkKey();
             if (!key || !bookmarkStore[key]) { updateBookmarkUi(); return; }
-            delete bookmarkStore[key];
+            if (bookmarkId) {
+                const before = activeBookmarks();
+                const after = before.filter(b => b.id !== bookmarkId);
+                saveActiveBookmarks(after);
+                toast(after.length === before.length ? 'Nu am gasit semnul de carte' : 'Semn de carte sters');
+            } else {
+                saveActiveBookmarks([]);
+                toast('Toate semnele de carte au fost sterse');
+            }
             saveBookmarksFileSoon();
             updateBookmarkUi();
-            toast('Semn de carte sters');
         }
-        function scrollToBookmark(bookmark) {
+        function scrollToBookmark(bookmark, displayIndex = null, total = null) {
             const block = findBookmarkBlock(bookmark);
             if (!block) {
                 canvasEl.scrollTo({ top: Math.max(0, bookmark && bookmark.scrollTop ? bookmark.scrollTop : 0), behavior: 'smooth' });
@@ -5878,21 +6315,48 @@ if (isset($_GET['action'])) {
             sel.removeAllRanges();
             sel.addRange(range);
             saveEditorSelection();
-            toast('Semn de carte: pagina ' + (bookmark.page || bookmarkPageNumber(block)));
+            const prefix = total ? ('Semn ' + (displayIndex + 1) + '/' + total + ': ') : 'Semn de carte: ';
+            toast(prefix + 'pagina ' + (bookmark.page || bookmarkPageNumber(block)));
             setTimeout(updateBookmarkUi, 350);
         }
+        function gotoNextBookmark() {
+            const list = activeBookmarks();
+            const key = activeBookmarkKey();
+            if (!list.length) { toast('Nu exista semne de carte. Pune unul cu butonul T.'); return; }
+            if (bookmarkCycleKey !== key) {
+                bookmarkCycleKey = key;
+                bookmarkCycleIndex = -1;
+            }
+            if (bookmarkCycleIndex < 0) {
+                const currentBlock = currentBookmarkBlock();
+                const blocks = bookmarkBlocks();
+                const currentIndex = currentBlock ? blocks.indexOf(currentBlock) : -1;
+                bookmarkCycleIndex = list.findIndex(b => {
+                    const bi = Number.isFinite(b.blockIndex) ? b.blockIndex : parseInt(b.blockIndex, 10);
+                    return Number.isFinite(bi) && bi > currentIndex;
+                });
+                if (bookmarkCycleIndex < 0) bookmarkCycleIndex = 0;
+            } else {
+                bookmarkCycleIndex = (bookmarkCycleIndex + 1) % list.length;
+            }
+            scrollToBookmark(list[bookmarkCycleIndex], bookmarkCycleIndex, list.length);
+        }
         function toggleBookmark(e) {
-            const bookmark = activeBookmark();
-            if (!bookmark) { setBookmarkHere(); return; }
-            scrollToBookmark(bookmark);
+            const list = activeBookmarks();
+            if (e && (e.ctrlKey || e.metaKey)) {
+                if (!list.length) { toast('Nu exista semne de carte de sters'); return; }
+                clearBookmark();
+                return;
+            }
+            setBookmarkHere();
         }
         function bookmarkMarkerDoubleClick(e) {
             e.preventDefault();
             e.stopPropagation();
-            clearBookmark();
+            clearBookmark(e.currentTarget ? e.currentTarget.getAttribute('data-bookmark-id') : '');
         }
-        function positionBookmarkMarker(block) {
-            const marker = document.getElementById('bookmarkMarker');
+        function positionBookmarkMarker(block, marker, index = null, total = null) {
+            marker = marker || document.getElementById('bookmarkMarker');
             if (!marker || !block) return false;
             const sheet = block.closest('.page');
             if (!sheet) return false;
@@ -5901,26 +6365,38 @@ if (isset($_GET['action'])) {
             const sr = sheet.getBoundingClientRect();
             marker.style.top = Math.max(0, canvasEl.scrollTop + br.top - cr.top - 3) + 'px';
             marker.style.left = Math.max(4, canvasEl.scrollLeft + sr.left - cr.left - 30) + 'px';
-            marker.title = 'Dublu click ca sa stergi semnul de carte';
+            marker.title = total ? ('Semn ' + (index + 1) + '/' + total + ' - dublu click ca sa-l stergi') : 'Dublu click ca sa stergi semnul de carte';
             marker.classList.add('show');
             return true;
         }
         function updateBookmarkUi() {
             const btn = document.getElementById('bookmarkBtn');
             const marker = document.getElementById('bookmarkMarker');
-            const bookmark = activeBookmark();
-            const has = !!bookmark;
+            const bookmarks = activeBookmarks();
+            const has = bookmarks.length > 0;
             if (btn) {
                 btn.classList.toggle('has-bookmark', has);
                 btn.textContent = has ? '||' : 'T';
                 btn.title = has
-                    ? 'Semn de carte existent: click ca sa mergi acolo. Dublu click pe markerul T din document sterge semnul.'
+                    ? 'Click: adauga marker aici. F12: urmatorul marker. Ctrl+click: sterge toate marker-ele.'
                     : 'Nu exista semn de carte pentru fisierul curent: click ca sa-l pui aici.';
             }
+            document.querySelectorAll('.bookmark-marker-dynamic').forEach(m => m.remove());
             if (marker) marker.classList.remove('show');
             if (!has || !bookmarkStoreLoaded) return;
-            const block = findBookmarkBlock(bookmark);
-            if (block) positionBookmarkMarker(block);
+            bookmarks.forEach((bookmark, idx) => {
+                const block = findBookmarkBlock(bookmark);
+                if (!block) return;
+                const m = document.createElement('div');
+                m.className = 'bookmark-marker bookmark-marker-dynamic show';
+                m.setAttribute('contenteditable', 'false');
+                m.setAttribute('aria-hidden', 'true');
+                m.setAttribute('data-bookmark-id', bookmark.id || '');
+                m.textContent = String(idx + 1);
+                m.addEventListener('dblclick', bookmarkMarkerDoubleClick);
+                canvasEl.appendChild(m);
+                positionBookmarkMarker(block, m, idx, bookmarks.length);
+            });
         }
         window.addEventListener('resize', () => updateBookmarkUi());
 
@@ -5950,6 +6426,7 @@ if (isset($_GET['action'])) {
             document.getElementById('stMode').textContent = (t.ext || '').toUpperCase();
             document.getElementById('pdfPages').innerHTML = '';
             document.getElementById('pdfPages').style.display = 'none';
+            applyPageLayout(t.layout || DEFAULT_PAGE_LAYOUT);
             setDocHtml(t.html || '');
             if (t.isPdf && t.path) loadPdf(api('action=raw&file=' + encodeURIComponent(t.path)));
             renderTabs(); updateWordCount(); updateBookmarkUi();
@@ -5978,7 +6455,7 @@ if (isset($_GET['action'])) {
             if (activeId === id) {
                 if (tabs.length) { activeId = null; activateTab(tabs[Math.max(0, realIdx - 1)].id); }
                 else {
-                    activeId = null; currentFile = null; currentExt = null; setDocHtml('');
+                    activeId = null; currentFile = null; currentExt = null; applyPageLayout(DEFAULT_PAGE_LAYOUT); setDocHtml('');
                     document.getElementById('stMode').textContent = '—'; renderTabs(); showOverlay();
                 }
             } else { renderTabs(); updateBookmarkUi(); }
@@ -5992,6 +6469,7 @@ if (isset($_GET['action'])) {
                 if (!ok) return;
             }
             currentFile = null; currentExt = null;
+            applyPageLayout(DEFAULT_PAGE_LAYOUT);
             setDocHtml('');
             document.getElementById('stMode').textContent = '—';
             showOverlay();
@@ -6100,7 +6578,7 @@ if (isset($_GET['action'])) {
             if (window.showOpenFilePicker) {
                 try {
                     const [h] = await window.showOpenFilePicker({
-                        types: [{ description: 'Documente', accept: { 'application/octet-stream': ['.docx', '.doc', '.odt', '.pdf'] } }]
+                        types: [{ description: 'Documente', accept: { 'application/octet-stream': ['.docx', '.doc', '.odt', '.rtf', '.pdf'] } }]
                     });
                     const file = await h.getFile();
                     openDroppedFile(file, h);
@@ -6171,7 +6649,7 @@ if (isset($_GET['action'])) {
             list.innerHTML = '';
             items.forEach(e => {
                 const ext = (e.ext || e.name.split('.').pop() || '').toLowerCase();
-                const ico = ext === 'pdf' ? '📕' : ext === 'odt' ? '📘' : ext === 'doc' ? '📃' : '📄';
+                const ico = ext === 'pdf' ? '📕' : ext === 'odt' ? '📘' : (ext === 'doc' || ext === 'rtf') ? '📃' : '📄';
                 const folder = e.path ? (e.path.replace(/\\/g, '/').split('/').filter(Boolean).slice(-2, -1)[0] || '') : 'drag&drop';
                 const el = document.createElement('div'); el.className = 'recent-item'; el.title = e.path || (e.name + ' (drag&drop)');
                 el.innerHTML = '<span>' + ico + '</span><span class="rn">' + escapeHtml(e.name) + '</span><span class="rf">' + escapeHtml(folder) + '</span>';
@@ -6213,6 +6691,7 @@ if (isset($_GET['action'])) {
                 if (document.getElementById('startOverlay').classList.contains('open')) { e.preventDefault(); hideOverlay(); return; }
                 if (document.getElementById('frDialog').classList.contains('open')) { e.preventDefault(); closeFR(); return; }
             }
+            if (e.key === 'F12' && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); gotoNextBookmark(); return; }
             if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveDocx(); }
             else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
             else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); doRedo(); }
@@ -6282,6 +6761,7 @@ if (isset($_GET['action'])) {
         makeDraggable('selPaneHandle', 'selPane');
         makeDraggable('pathHandle', 'pathPopup');
         makeDraggable('diacHandle', 'diacPopup');
+        applyPageLayout(DEFAULT_PAGE_LAYOUT);
         setDocHtml('');   // o coală goală (paragraf gol), gata de scris
         renderTabs();
         loadFileList('');

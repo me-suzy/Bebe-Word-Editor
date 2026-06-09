@@ -5017,18 +5017,163 @@ if (isset($_GET['action'])) {
             }
         }
 
-        // ── Paste: text curat ──
+        // ── Paste: text curat, dar cu formatul locului curent ──
+        function escapeAttr(s) {
+            return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        }
+        function firstTextElementInRange(range) {
+            if (!range || range.collapsed) return null;
+            const root = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentNode;
+            if (!root) return null;
+            if (!document.createTreeWalker) return null;
+            const NF = window.NodeFilter || { SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2, FILTER_SKIP: 3 };
+            const walker = document.createTreeWalker(root, NF.SHOW_TEXT, {
+                acceptNode(node) {
+                    if (!node.nodeValue || !node.nodeValue.trim()) return NF.FILTER_SKIP;
+                    try { return range.intersectsNode(node) ? NF.FILTER_ACCEPT : NF.FILTER_REJECT; }
+                    catch (e) { return NF.FILTER_REJECT; }
+                }
+            });
+            const node = walker.nextNode();
+            return node ? node.parentElement : null;
+        }
+        function elementNearRange(range) {
+            if (!range) return null;
+            const selected = firstTextElementInRange(range);
+            if (selected) return selected;
+            let node = range.startContainer;
+            if (node && node.nodeType === 3) return node.parentElement;
+            if (node && node.nodeType === 1) {
+                const child = node.childNodes[Math.min(range.startOffset, node.childNodes.length - 1)] || node.childNodes[range.startOffset - 1];
+                let probe = child || node;
+                while (probe && probe.nodeType === 1 && probe.firstChild) probe = probe.firstChild;
+                if (probe && probe.nodeType === 3) return probe.parentElement;
+                return node === page ? null : node;
+            }
+            return null;
+        }
+        function pasteInlineCssFrom(element) {
+            const source = element || page.querySelector('.page p') || page;
+            const cs = getComputedStyle(source);
+            let css = '';
+            const add = (prop, value) => {
+                value = String(value || '').trim();
+                if (!value) return;
+                css += prop + ':' + value.replace(/[;"<>]/g, '') + ';';
+            };
+            add('font-family', cs.fontFamily);
+            add('font-size', cs.fontSize);
+            add('color', cs.color);
+            add('font-weight', cs.fontWeight);
+            add('font-style', cs.fontStyle);
+            const deco = cs.textDecorationLine || cs.textDecoration || '';
+            if (deco && deco !== 'none') add('text-decoration', deco);
+            const bg = cs.backgroundColor || '';
+            if (bg && !/rgba?\(0,\s*0,\s*0,\s*0\)|transparent/i.test(bg)) add('background-color', bg);
+            return css;
+        }
+        function pasteBlockAttrsFrom(block) {
+            if (!block) return '';
+            let attrs = '';
+            const cls = (block.getAttribute('class') || '').replace(/\bmark-\S+/g, '').trim();
+            let style = block.getAttribute('style') || '';
+            const align = normalizeTextAlign(getComputedStyle(block).textAlign);
+            if (align && align !== 'left' && !/text-align\s*:/i.test(style)) style += ';text-align:' + align;
+            if (cls) attrs += ' class="' + escapeAttr(cls) + '"';
+            if (style.trim()) attrs += ' style="' + escapeAttr(style.trim()) + '"';
+            return attrs;
+        }
+        function htmlForPasteText(text, inlineCss, blockAttrs) {
+            text = String(text || '').replace(/\r\n?/g, '\n');
+            if (!text) return '';
+            const spanOpen = inlineCss ? '<span style="' + escapeAttr(inlineCss) + '">' : '<span>';
+            const spanClose = '</span>';
+            const lineHtml = s => spanOpen + escapeHtml(String(s)).replace(/\n/g, '<br>') + spanClose;
+            if (!/\n/.test(text)) return lineHtml(text);
+            if (!/\n\s*\n/.test(text)) return lineHtml(text);
+            return text.split(/\n{2,}/).map(par => {
+                const inner = par ? lineHtml(par) : '<br>';
+                return '<p' + blockAttrs + '>' + inner + '</p>';
+            }).join('');
+        }
+        function clipboardPlainText(data) {
+            if (!data) return '';
+            const plain = data.getData('text/plain');
+            if (plain) return plain;
+            const html = data.getData('text/html');
+            if (!html) return '';
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.innerText || tmp.textContent || '';
+        }
+        function insertHtmlAtRange(range, html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            const frag = document.createDocumentFragment();
+            let first = null, last = null;
+            while (tmp.firstChild) {
+                const node = tmp.firstChild;
+                if (!first) first = node;
+                last = node;
+                frag.appendChild(node);
+            }
+            if (!first) return false;
+            range.deleteContents();
+            range.insertNode(frag);
+            const sel = window.getSelection();
+            const caret = document.createRange();
+            caret.setStartAfter(last);
+            caret.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(caret);
+            return true;
+        }
+        function pastePlainTextWithCurrentFormat(text) {
+            text = String(text || '').replace(/\r\n?/g, '\n');
+            if (!text) return false;
+            restoreEditorSelection();
+            const range = selectionRangeInsidePage();
+            if (!range) { focusPageNoJump(); return false; }
+            const sourceEl = elementNearRange(range);
+            const sourceBlock = blockOf(sourceEl || range.startContainer) || getBlock();
+            const html = htmlForPasteText(text, pasteInlineCssFrom(sourceEl || sourceBlock), pasteBlockAttrsFrom(sourceBlock));
+            if (!html) return false;
+            recordUndo();
+            suppressSnap = true;
+            try {
+                focusPageNoJump();
+                const sel = window.getSelection();
+                const fallbackRange = range.cloneRange();
+                const beforeHtml = page.innerHTML;
+                const replacingSameText = !range.collapsed && range.toString() === text;
+                sel.removeAllRanges();
+                sel.addRange(range);
+                let inserted = false;
+                try { inserted = document.execCommand('insertHTML', false, html); } catch (e) { inserted = false; }
+                if (!inserted || (!replacingSameText && page.innerHTML === beforeHtml)) {
+                    sel.removeAllRanges();
+                    sel.addRange(fallbackRange);
+                    inserted = insertHtmlAtRange(fallbackRange, html);
+                }
+                if (!inserted) return false;
+                saveEditorSelection();
+            } finally { suppressSnap = false; }
+            appCloseApproved = false;
+            refreshActive();
+            updateWordCount();
+            scheduleAutoBackup();
+            scheduleEditorRepaginateIfNeeded(80);
+            if (dexOn) setTimeout(runDexCheck, 120);
+            return true;
+        }
         page.addEventListener('paste', (e) => {
             e.preventDefault();
-            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-            const html = text.split(/\r?\n\r?\n/).map(par =>
-                '<p>' + escapeHtml(par).replace(/\r?\n/g, '<br>') + '</p>').join('');
-            document.execCommand('insertHTML', false, html || '<p><br></p>');
+            const text = clipboardPlainText(e.clipboardData || window.clipboardData);
+            if (!pastePlainTextWithCurrentFormat(text)) toast('Nu pot lipi text aici');
         });
         function doPaste() {
             navigator.clipboard.readText().then(t => {
-                page.focus();
-                document.execCommand('insertText', false, t);
+                if (!pastePlainTextWithCurrentFormat(t)) toast('Nu pot lipi text aici');
             }).catch(() => toast('Folosește Ctrl+V'));
         }
 

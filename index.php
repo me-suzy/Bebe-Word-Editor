@@ -7333,6 +7333,14 @@ if (isset($_GET['action'])) {
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(function () { });
         }
+        // Fereastra aplicației instalate pornește pe tot ecranul disponibil (ca maximizată)
+        if (window.matchMedia('(display-mode: standalone)').matches &&
+            (window.outerWidth < screen.availWidth - 8 || window.outerHeight < screen.availHeight - 8)) {
+            try {
+                window.moveTo(screen.availLeft || 0, screen.availTop || 0);
+                window.resizeTo(screen.availWidth, screen.availHeight);
+            } catch (e) { }
+        }
     </script>
 </body>
 

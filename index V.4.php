@@ -2548,6 +2548,45 @@ if (isset($_GET['action'])) {
             return out;
         }
 
+        // Live: la orice schimbare a H1 (Code sau Design) actualizează imediat în cod title, abstract,
+        // Subject, og:title și JSON-LD headline/name. Categoria și index-ul se aliniază la Save.
+        let liveH1TitleSyncTimer = null;
+        function scheduleLiveH1TitleSync() {
+            clearTimeout(liveH1TitleSyncTimer);
+            liveH1TitleSyncTimer = setTimeout(runLiveH1TitleSync, 300);
+        }
+
+        function runLiveH1TitleSync() {
+            liveH1TitleSyncTimer = null;
+            if (!editor || _isRestoringTab || !isCurrentFileHtml()) return;
+            let tab = null;
+            for (let i = 0; i < tabs.length; i++) { if (tabs[i].id === activeTabId) { tab = tabs[i]; break; } }
+            if (!tab || tab.type === 'browser') return;
+            const src = editor.getValue();
+            const h1 = extractArticleH1TitlePlain(src);
+            if (!h1) return;
+            if (tab.liveH1Seen === undefined) tab.liveH1Seen = extractArticleH1TitlePlain(tab.originalContent || '');
+            if (h1 === tab.liveH1Seen) return;
+            tab.liveH1Seen = h1;
+            const out = applyH1ToPageTitles(src);
+            if (out === src) return;
+            // Înlocuiește doar porțiunea care diferă (din <head>) — cursorul/scroll-ul din body rămân pe loc.
+            let pre = 0;
+            const maxPre = Math.min(src.length, out.length);
+            while (pre < maxPre && src.charCodeAt(pre) === out.charCodeAt(pre)) pre++;
+            let suf = 0;
+            const maxSuf = Math.min(src.length, out.length) - pre;
+            while (suf < maxSuf && src.charCodeAt(src.length - 1 - suf) === out.charCodeAt(out.length - 1 - suf)) suf++;
+            const doc = editor.getDoc();
+            const wasSync = isSyncFromDesign;
+            isSyncFromDesign = true;
+            try {
+                doc.replaceRange(out.slice(pre, out.length - suf), doc.posFromIndex(pre), doc.posFromIndex(src.length - suf), '+h1titles');
+            } finally {
+                isSyncFromDesign = wasSync;
+            }
+        }
+
         function createTabState(opts) {
             opts = opts || {};
             tabIdCounter++;
@@ -2878,6 +2917,9 @@ if (isset($_GET['action'])) {
             var tab = null, idx = -1;
             for (var i = 0; i < tabs.length; i++) { if (tabs[i].id === tabId) { tab = tabs[i]; idx = i; break; } }
             if (!tab) return;
+            if (tab.type !== 'browser' && !await checkArticleIdentity(tab, true)) return;
+            idx = tabs.findIndex(t => t.id === tabId);
+            if (idx < 0) return;
 
             // Browser tabs: close popup window, no save prompt needed
             if (tab.type === 'browser') {
@@ -2985,6 +3027,7 @@ if (isset($_GET['action'])) {
         }
 
         function onNewTabClick() {
+            scheduleIndexOrderCheck();
             saveCurrentTabState();
             if (typeof deactivateSasa === 'function') deactivateSasa();
             if (typeof deactivateCrop === 'function' && cropHighlightActive) deactivateCrop();
@@ -3137,6 +3180,8 @@ if (isset($_GET['action'])) {
                     // Only restore backups that still differ from the real file on disk.
                     tab.isDirty = true;
                     tabs.push(tab);
+                    setTimeout(() => checkArticleIdentity(tab), 0);
+                    scheduleIndexOrderCheck();
                     keptBackups.push(makeTabBackup(tab));
                     consumedIndexes.push(i);
                     restored++;
@@ -3832,6 +3877,8 @@ if (isset($_GET['action'])) {
                 browserUrl: BROWSER_DEFAULT_URL
             });
             tabs.push(tab);
+                    setTimeout(() => checkArticleIdentity(tab), 0);
+                    scheduleIndexOrderCheck();
             activeTabId = tab.id;
             // Show browser panel
             var splitContainer = document.getElementById('splitContainer');
@@ -4190,7 +4237,9 @@ if (isset($_GET['action'])) {
             const day = parseInt(dm[2], 10);
             const year = parseInt(dm[3], 10);
             if (!Number.isFinite(day) || !Number.isFinite(year) || day < 1 || day > 31 || year < 1900) return null;
-            const ms = new Date(year, monthIdx, day).getTime();
+            const date = new Date(year, monthIdx, day);
+            if (date.getFullYear() !== year || date.getMonth() !== monthIdx || date.getDate() !== day) return null;
+            const ms = date.getTime();
             return Number.isFinite(ms) ? ms : null;
         }
 
@@ -4897,7 +4946,7 @@ if (isset($_GET['action'])) {
 
         // Fără dubluri în index: același titlu+dată, același URL articol (link den_articol / linkMare), sau același HTML compresat.
         // Index-ul homepage primește automat doar articole mai noi decât ultimul/cel mai recent fragment deja listat.
-        function mergeCategoryBlockIntoIndex(indexHtml, blockHtml) {
+        function mergeCategoryBlockIntoIndex(indexHtml, blockHtml, options = {}) {
             const bounds = locateIndexCategorySectionBounds(indexHtml);
             if (!bounds.ok) return { ok: false, msg: bounds.msg };
             const blocks = enumerateIndexCategoryBlocks(indexHtml, bounds.divEndGlobal, bounds.regionEnd);
@@ -4950,7 +4999,7 @@ if (isset($_GET['action'])) {
             }
 
             const newestExistingTs = firstParsedIndexBlockTimestamp(blocks);
-            if (newestExistingTs !== null && (newTs === null || newTs <= newestExistingTs)) {
+            if (!options.explicitInsert && newestExistingTs !== null && (newTs === null || newTs <= newestExistingTs)) {
                 return {
                     ok: true,
                     html: indexHtml,
@@ -4965,8 +5014,381 @@ if (isset($_GET['action'])) {
                 ok: true,
                 html: ins.html,
                 action: 'insert',
-                msg: 'Articol adăugat în index (mai nou decât ultimul fragment).'
+                msg: 'Articol adăugat în index (ordonat după dată).'
             };
+        }
+
+        function suggestCalendarMonth(value) {
+            const input = String(value).trim().toLowerCase();
+            const months = [...Object.keys(RO_MONTH_TO_INDEX), ...Object.keys(EN_MONTH_TO_INDEX)];
+            let best = [], distance = Infinity;
+            for (const month of months) {
+                let row = Array.from({ length: month.length + 1 }, (_, i) => i);
+                for (let i = 1; i <= input.length; i++) {
+                    const next = [i];
+                    for (let j = 1; j <= month.length; j++) {
+                        next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + (input[i - 1] === month[j - 1] ? 0 : 1));
+                    }
+                    row = next;
+                }
+                const score = row[month.length];
+                if (score < distance) { best = [month]; distance = score; }
+                else if (score === distance) best.push(month);
+            }
+            return distance <= 2 && best.length === 1 ? best[0][0].toUpperCase() + best[0].slice(1) : '';
+        }
+
+        function validateIndexArticleDates(blocks) {
+            const errors = [];
+            for (const entry of blocks) {
+                const td = entry.block.match(/class\s*=\s*["']text_dreapta["'][^>]*>([\s\S]*?)<\/td>/i);
+                const plain = td ? td[1].replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/\s+/g, ' ').trim() : '';
+                const match = plain.match(/\bOn\s+(.+?)\s+(\d{1,2}),?\s+(\d{4})\b/i);
+                if (!match) {
+                    errors.push({ file: entry.key, text: plain || '(dată lipsă)', reason: 'Format de dată nerecunoscut. Folosește: On Lună zi, an.', suggestion: '' });
+                    continue;
+                }
+                const month = monthIndexFromRoEnName(match[1]);
+                if (month === null) {
+                    const suggested = suggestCalendarMonth(match[1]);
+                    errors.push({ file: entry.key, text: match[0], reason: 'Lună scrisă greșit sau necunoscută: ' + match[1] + '.', suggestion: suggested ? 'On ' + suggested + ' ' + match[2] + ', ' + match[3] : '' });
+                } else if (parseCategoryArticleLineDate(entry.block) === null) {
+                    errors.push({ file: entry.key, text: match[0], reason: 'Dată calendaristică invalidă. Verifică ziua, anul și numărul de zile al lunii.', suggestion: '' });
+                }
+            }
+            return errors;
+        }
+
+        function correctMonthInDateCells(html, error) {
+            const original = error.text.match(/^On\s+(.+?)\s+(\d{1,2}),?\s+(\d{4})$/i);
+            const suggested = error.suggestion && error.suggestion.match(/^On\s+(.+?)\s+(\d{1,2}),?\s+(\d{4})$/i);
+            if (!original || !suggested) return { ok: false, html };
+            let found = false;
+            const result = html.replace(/(<td\b[^>]*class\s*=\s*["']text_dreapta["'][^>]*>)([\s\S]*?)(<\/td>)/gi, (all, open, inner, close) => {
+                const fixed = inner.replace(/\bOn\s+([^<>]+?)\s+(\d{1,2}),?\s+(\d{4})\b/gi, (date, month, day, year) => {
+                    if (Number(day) !== Number(original[2]) || year !== original[3]) return date;
+                    if (monthIndexFromRoEnName(month) === monthIndexFromRoEnName(suggested[1])) { found = true; return date; }
+                    if (month.toLowerCase() !== original[1].toLowerCase()) return date;
+                    found = true;
+                    return date.replace(month, suggested[1]);
+                });
+                return open + fixed + close;
+            });
+            return { ok: found, html: result };
+        }
+
+        async function correctLinkedIndexMonths(indexPath, html, errors, messages) {
+            const apiBase = window.location.pathname.replace(/[#?].*$/, '');
+            const read = async path => {
+                const data = await (await fetch(apiBase + '?action=load&file=' + encodeURIComponent(path), { cache: 'no-store' })).json();
+                if (!data.ok) throw new Error(data.error || 'Nu pot citi ' + path);
+                return data.content;
+            };
+            const write = async (path, before, after) => {
+                if (before === after) { messages.push(path + ' — luna este deja corectă.'); return; }
+                const tab = findTabByPath(path);
+                if (tab && (tab.isDirty || (tab.id === activeTabId && editor && normalizeHtmlForSyncCompare(editor.getValue()) !== normalizeHtmlForSyncCompare(tab.originalContent)))) throw new Error('Modificări nesalvate în ' + path);
+                if (await read(path) !== before) throw new Error('Fișier modificat între timp: ' + path);
+                const saved = await (await fetch(apiBase + '?action=save', { method: 'POST', body: new URLSearchParams({ file: path, content: after }) })).json();
+                if (!saved.ok) throw new Error(saved.error || 'Salvare eșuată: ' + path);
+                messages.push(path + ' — luna a fost corectată.');
+                if (tab && !tab.isDirty && (tab.id !== activeTabId || !editor || normalizeHtmlForSyncCompare(editor.getValue()) === normalizeHtmlForSyncCompare(before))) {
+                    tab.editorContent = tab.originalContent = after;
+                    tab.originalContentNorm = normalizeHtmlForCompare(after);
+                    if (tab.id === activeTabId && editor) {
+                        isSyncFromDesign = true;
+                        try { editor.setValue(after); } finally { isSyncFromDesign = false; }
+                        updatePreview();
+                    }
+                    updateTabPresentation(tab);
+                }
+            };
+            for (const error of errors) {
+                if (!error.suggestion) continue;
+                try {
+                    const bounds = locateIndexCategorySectionBounds(html);
+                    const block = enumerateIndexCategoryBlocks(html, bounds.divEndGlobal, bounds.regionEnd).find(b => b.key === error.file);
+                    if (!block) throw new Error('Intrarea nu mai există în index.');
+                    const category = block.block.match(/<a\b(?=[^>]*\brel\s*=\s*["'][^"']*category)[^>]*href\s*=\s*["']([^"']+)["']/i);
+                    if (!category) throw new Error('Nu am identificat categoria.');
+                    const filename = value => {
+                        const name = new URL(value, 'https://local.invalid/').pathname.split('/').pop();
+                        if (!/^[\w.-]+\.html?$/i.test(name)) throw new Error('Nume de fișier nerecunoscut.');
+                        return name;
+                    };
+                    const articlePath = categoryPathBesideArticle(indexPath, filename(error.file));
+                    const categoryPath = categoryPathBesideArticle(indexPath, filename(category[1]));
+                    const article = await read(articlePath), categoryHtml = await read(categoryPath);
+                    const articleFix = correctMonthInDateCells(article, error);
+                    const region = findCategoryListRegion(categoryHtml);
+                    if (!region.ok) throw new Error(region.msg);
+                    const matches = enumerateIndexCategoryBlocks(categoryHtml, region.divEndGlobal, region.regionEnd).filter(b => b.key === error.file);
+                    if (!matches.length) throw new Error('Articolul nu a fost găsit în categorie.');
+                    let categoryFixed = categoryHtml;
+                    for (const entry of matches.slice().reverse()) {
+                        const fixed = correctMonthInDateCells(entry.block, error);
+                        if (!fixed.ok) throw new Error('Data din categorie diferă; verifică manual.');
+                        categoryFixed = categoryFixed.slice(0, entry.start) + fixed.html + categoryFixed.slice(entry.end);
+                    }
+                    const indexFix = correctMonthInDateCells(block.block, error);
+                    if (!articleFix.ok || !indexFix.ok) throw new Error('Data articolului diferă; verifică manual.');
+                    await write(articlePath, article, articleFix.html);
+                    await write(categoryPath, categoryHtml, categoryFixed);
+                    html = html.slice(0, block.start) + indexFix.html + html.slice(block.end);
+                    messages.push(error.file + ': „' + error.text + '” → „' + error.suggestion + '”.');
+                } catch (errorInfo) {
+                    messages.push(error.file + ' — corectare incompletă: ' + errorInfo.message + ' Data din index rămâne pentru reverificare.');
+                }
+            }
+            return html;
+        }
+
+        function reorderIndexArticles(html) {
+            const bounds = locateIndexCategorySectionBounds(html);
+            if (!bounds.ok) return { ok: false, msg: bounds.msg };
+            const blocks = enumerateIndexCategoryBlocks(html, bounds.divEndGlobal, bounds.regionEnd);
+            const dated = blocks.map((b, i) => ({ ...b, position: i, date: parseCategoryArticleLineDate(b.block) })).filter(b => b.date !== null);
+            const sorted = dated.slice().sort((a, b) => b.date - a.date || a.position - b.position);
+            const changes = [];
+            let result = html;
+            // Replace only article blocks; preserve all surrounding HTML and undated entries.
+            for (let i = dated.length - 1; i >= 0; i--) {
+                const old = dated[i], replacement = sorted[i];
+                if (old.position === replacement.position) continue;
+                result = result.slice(0, old.start) + replacement.block + result.slice(old.end);
+                changes.unshift({ file: replacement.key, from: replacement.position + 1, to: old.position + 1, date: replacement.date });
+            }
+            return { ok: true, html: result, changes, dateErrors: validateIndexArticleDates(blocks) };
+        }
+
+        let indexOrderTimer = null;
+        let indexOrderRunning = false;
+        function scheduleIndexOrderCheck() {
+            clearTimeout(indexOrderTimer);
+            indexOrderTimer = setTimeout(checkIndexArticleOrder, 500);
+        }
+
+        function showIndexOrderReport(reports) {
+            let dialog = document.getElementById('indexOrderReport');
+            if (!dialog) {
+                dialog = document.createElement('dialog');
+                dialog.id = 'indexOrderReport';
+                dialog.style.cssText = 'max-width:620px;width:calc(100% - 48px);max-height:80vh;overflow:auto;padding:28px;border:1px solid #526080;border-radius:16px;background:#242735;color:#f1f3f9;box-shadow:0 20px 70px #0008;font:16px/1.6 system-ui';
+                dialog.setAttribute('aria-labelledby', 'indexOrderReportTitle');
+                dialog.innerHTML = '<h2 id="indexOrderReportTitle" style="margin-top:0">Verificarea articolelor din index</h2><div class="report"></div><form method="dialog"><button autofocus style="padding:10px 24px;background:#397ce8;color:white;border:0;border-radius:8px;font:inherit;cursor:pointer">Am înțeles</button></form>';
+                document.body.appendChild(dialog);
+            }
+            const container = dialog.querySelector('.report');
+            if (!dialog.open) container.replaceChildren();
+            for (const report of reports) {
+                const title = document.createElement('p');
+                title.textContent = report.path + (report.changes.length ? ' — ordinea datelor a fost corectată și salvată:' : ' — date de verificat:');
+                container.appendChild(title);
+                for (const text of (report.corrections || [])) {
+                    const detail = document.createElement('p');
+                    detail.textContent = text;
+                    container.appendChild(detail);
+                }
+                const list = document.createElement('ul');
+                for (const change of report.changes) {
+                    const item = document.createElement('li');
+                    const date = new Intl.DateTimeFormat('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(change.date));
+                    item.textContent = change.file + ' (' + date + '): poziția ' + change.from + ' → ' + change.to + '.';
+                    list.appendChild(item);
+                }
+                container.appendChild(list);
+                if (report.dateErrors && report.dateErrors.length) {
+                    const note = document.createElement('p');
+                    note.textContent = 'Datele de mai jos necesită corectare manuală. Articolele respective nu au fost mutate automat:';
+                    container.appendChild(note);
+                    const errors = document.createElement('ul');
+                    for (const error of report.dateErrors) {
+                        const item = document.createElement('li');
+                        item.textContent = error.file + ' — „' + error.text + '”. ' + error.reason + (error.suggestion ? ' Sugestie: „' + error.suggestion + '”.' : '');
+                        errors.appendChild(item);
+                    }
+                    container.appendChild(errors);
+                }
+            }
+            if (!dialog.open) dialog.showModal();
+        }
+
+        async function checkIndexArticleOrder() {
+            if (indexOrderRunning) { scheduleIndexOrderCheck(); return; }
+            indexOrderRunning = true;
+            const reports = [];
+            const apiBase = window.location.pathname.replace(/[#?].*$/, '');
+            try {
+                for (const path of [TO_INDEX_RO_HTML_PATH, TO_INDEX_EN_HTML_PATH]) {
+                    const hasEdits = () => {
+                        const tab = findTabByPath(path);
+                        return tab && (tab.isDirty || (tab.id === activeTabId && editor && normalizeHtmlForSyncCompare(editor.getValue()) !== normalizeHtmlForSyncCompare(tab.originalContent)));
+                    };
+                    if (hasEdits()) { toast('Verificare index amânată: salvează modificările din ' + path); continue; }
+                    const url = apiBase + '?action=load&file=' + encodeURIComponent(path);
+                    const data = await (await fetch(url, { cache: 'no-store' })).json();
+                    if (!data.ok) { toast('Verificare index: ' + (data.error || path)); continue; }
+                    let result = reorderIndexArticles(data.content);
+                    if (!result.ok) { toast('Verificare index: ' + result.msg); continue; }
+                    const report = { path, changes: [], dateErrors: result.dateErrors, corrections: [] };
+                    reports.push(report);
+                    const corrected = await correctLinkedIndexMonths(path, data.content, result.dateErrors, report.corrections);
+                    result = reorderIndexArticles(corrected);
+                    if (!result.changes.length && corrected === data.content) continue;
+                    // Re-read before saving so external edits made during the check are not overwritten.
+                    const latest = await (await fetch(url, { cache: 'no-store' })).json();
+                    if (!latest.ok || latest.content !== data.content || hasEdits()) { scheduleIndexOrderCheck(); continue; }
+                    const body = new URLSearchParams({ file: path, content: result.html });
+                    const saved = await (await fetch(apiBase + '?action=save', { method: 'POST', body })).json();
+                    if (!saved.ok) { toast('Indexul nu a putut fi reordonat: ' + (saved.error || path)); continue; }
+                    report.changes = result.changes;
+                    report.dateErrors = result.dateErrors;
+                    if (corrected !== data.content) report.corrections.push(path + ' — luna corectată și indexul salvat.');
+                    const tab = findTabByPath(path);
+                    if (tab && !hasEdits()) {
+                        tab.editorContent = tab.originalContent = result.html;
+                        tab.originalContentNorm = normalizeHtmlForCompare(result.html);
+                        if (tab.id === activeTabId && editor) {
+                            isSyncFromDesign = true;
+                            try { editor.setValue(result.html); } finally { isSyncFromDesign = false; }
+                            updatePreview();
+                        }
+                        updateTabPresentation(tab);
+                    }
+                }
+            } catch (error) {
+                console.error(error);
+                toast('Verificarea indexului nu a reușit: ' + error.message);
+            } finally {
+                indexOrderRunning = false;
+                const visibleReports = reports.filter(r => r.changes.length || r.dateErrors.length || r.corrections.length);
+                if (visibleReports.length) showIndexOrderReport(visibleReports);
+            }
+        }
+        window.addEventListener('load', scheduleIndexOrderCheck);
+
+        function articleIdentityIssues(source, path) {
+            const file = String(path || '').replace(/\\/g, '/').split('/').pop();
+            if (!/\.html?$/i.test(file || '')) return [];
+            const doc = new DOMParser().parseFromString(source, 'text/html');
+            const language = /\/en\//i.test(String(path).replace(/\\/g, '/')) ? 'en' : 'ro';
+            const expected = 'https://neculaifantanaru.com/' + (language === 'en' ? 'en/' : '') + file;
+            const issues = [];
+            const inspect = (label, value) => {
+                try {
+                    const url = new URL(value, expected);
+                    const target = decodeURIComponent(url.pathname.split('/').pop());
+                    if (url.pathname.toLowerCase() !== new URL(expected).pathname.toLowerCase()) issues.push({ label, value: url.href, target, expected });
+                } catch (_) { issues.push({ label, value, target: '', expected }); }
+            };
+            for (const canonical of doc.querySelectorAll('link[rel~="canonical"]')) inspect('Canonical', canonical.getAttribute('href') || '');
+            return issues;
+        }
+
+        function canonicalLocalPath(filePath, canonicalUrl) {
+            const url = new URL(canonicalUrl);
+            if (!/^(www\.)?neculaifantanaru\.com$/i.test(url.hostname)) return null;
+            const match = url.pathname.match(/^\/(en\/)?([^/]+\.html?)$/i);
+            if (!match) return null;
+            const file = decodeURIComponent(match[2]);
+            if (!/^[\w.-]+\.html?$/i.test(file)) return null;
+            const path = String(filePath).replace(/\\/g, '/');
+            const root = path.match(/^(.*)\/(?:ro|en)\/[^/]+$/i);
+            if (!root) return null;
+            return root[1] + '/' + (match[1] ? 'en' : 'ro') + '/' + file;
+        }
+
+        let identityDialogQueue = Promise.resolve();
+        async function checkArticleIdentity(tab, closing = false) {
+            if (!tab || tab.type === 'browser' || !tab.filePath) return true;
+            const source = tab.id === activeTabId && editor ? editor.getValue() : tab.editorContent;
+            const issues = articleIdentityIssues(source || '', tab.filePath);
+            if (!issues.length) return true;
+            const task = async () => {
+                if (!tabs.includes(tab)) return true;
+                const details = [];
+                for (const issue of issues) {
+                    let duplicate = '';
+                    if (/^[\w.-]+\.html?$/i.test(issue.target)) {
+                        try {
+                            const path = canonicalLocalPath(tab.filePath, issue.value);
+                            if (!path) throw new Error('Canonical fără corespondent local');
+                            const data = await (await fetch('?action=load&file=' + encodeURIComponent(path), { cache: 'no-store', signal: AbortSignal.timeout(5000) })).json();
+                            if (data.ok) {
+                                const other = new DOMParser().parseFromString(data.content, 'text/html');
+                                const canonical = other.querySelector('link[rel~="canonical"]');
+                                if (canonical && new URL(canonical.getAttribute('href'), issue.value).href === issue.value) duplicate = ' Mai există un fișier cu același canonical: ' + path + '.';
+                            }
+                        } catch (_) { /* The filename mismatch remains useful even when the other file cannot be read. */ }
+                    }
+                    details.push(issue.label + ': ' + issue.value + '.' + duplicate + ' Link așteptat: ' + issue.expected);
+                }
+                const current = tab.id === activeTabId && editor ? editor.getValue() : tab.editorContent;
+                if (!tabs.includes(tab)) return true;
+                const currentIssues = articleIdentityIssues(current || '', tab.filePath);
+                if (!currentIssues.length) return true;
+                if (JSON.stringify(currentIssues) !== JSON.stringify(issues)) {
+                    if (!closing) setTimeout(() => checkArticleIdentity(tab), 0);
+                    return false;
+                }
+                return new Promise(resolve => {
+                    const dialog = document.createElement('dialog');
+                    dialog.style.cssText = 'max-width:680px;width:calc(100% - 48px);padding:28px;border:1px solid #526080;border-radius:16px;background:#242735;color:#f1f3f9;font:16px/1.6 system-ui;overflow-wrap:anywhere';
+                    const heading = document.createElement('h2');
+                    heading.textContent = 'Verifică linkul canonical';
+                    dialog.appendChild(heading);
+                    const intro = document.createElement('p');
+                    intro.textContent = tab.filePath + ' conține linkuri care indică alt articol. Este posibil să fi rămas din fișierul copiat.';
+                    dialog.appendChild(intro);
+                    for (const text of details) { const p = document.createElement('p'); p.textContent = text; dialog.appendChild(p); }
+                    const finish = value => { dialog.close(); dialog.remove(); resolve(value); };
+                    const stay = document.createElement('button'); stay.textContent = 'Revin la editare'; stay.autofocus = true;
+                    stay.onclick = () => finish(false); dialog.appendChild(stay);
+                    if (closing) { const leave = document.createElement('button'); leave.textContent = 'Închid oricum'; leave.onclick = () => finish(true); dialog.appendChild(leave); }
+                    for (const button of dialog.querySelectorAll('button')) button.style.cssText = 'padding:10px 18px;margin:8px 12px 0 0;border:0;border-radius:8px;background:#397ce8;color:white;font:inherit;cursor:pointer';
+                    dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
+                    document.body.appendChild(dialog); dialog.showModal();
+                });
+            };
+            const result = identityDialogQueue.then(task, task);
+            identityDialogQueue = result.catch(() => true);
+            return result;
+        }
+
+        function newerIndexEntry(indexHtml, blockHtml) {
+            const bounds = locateIndexCategorySectionBounds(indexHtml);
+            if (!bounds.ok) return null;
+            const timestamp = parseCategoryArticleLineDate(blockHtml);
+            if (timestamp === null) return null;
+            const key = normalizeArticleKeyFromBlock(blockHtml);
+            let newest = null;
+            for (const entry of enumerateIndexCategoryBlocks(indexHtml, bounds.divEndGlobal, bounds.regionEnd)) {
+                const date = parseCategoryArticleLineDate(entry.block);
+                if (entry.key !== key && date !== null && date > timestamp && (!newest || date > newest.date)) {
+                    newest = { date, file: entry.key };
+                }
+            }
+            return newest;
+        }
+
+        function showIndexDateNotice(entry) {
+            let dialog = document.getElementById('indexDateNotice');
+            if (!dialog) {
+                const style = document.createElement('style');
+                style.textContent = '#indexDateNotice{max-width:520px;width:calc(100% - 64px);box-sizing:border-box;padding:28px;border:1px solid #46516d;border-radius:16px;background:#242735;color:#f1f3f9;box-shadow:0 20px 70px #0008;font:16px/1.6 system-ui}#indexDateNotice::backdrop{background:#10131caa}#indexDateNotice h3{margin:0 0 16px;font-size:21px}#indexDateNotice p{margin:12px 0;overflow-wrap:anywhere}#indexDateNotice strong{color:#9fc4ff}#indexDateNotice button{display:block;margin:24px 0 0 auto;padding:10px 24px;border:0;border-radius:8px;background:#397ce8;color:white;font:600 15px system-ui;cursor:pointer}#indexDateNotice button:focus-visible{outline:3px solid #b8d2ff;outline-offset:3px}';
+                document.head.appendChild(style);
+                dialog = document.createElement('dialog');
+                dialog.id = 'indexDateNotice';
+                dialog.setAttribute('aria-labelledby', 'indexDateNoticeTitle');
+                dialog.innerHTML = '<h3 id="indexDateNoticeTitle">Articol adăugat în index</h3><p class="date-message"></p><p>Articolul curent este în index, sub intrarea mai recentă, în ordinea datelor. Poți corecta ulterior data articolului precedent.</p><form method="dialog"><button autofocus>Am înțeles</button></form>';
+                document.body.appendChild(dialog);
+            }
+            const date = document.createElement('strong');
+            date.textContent = new Intl.DateTimeFormat('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(entry.date));
+            const file = document.createElement('strong');
+            file.textContent = entry.file;
+            dialog.querySelector('.date-message').replaceChildren(document.createTextNode('Există deja o intrare mai recentă datată '), date, document.createTextNode(', la articolul '), file, document.createTextNode('.'));
+            if (!dialog.open) dialog.showModal();
         }
 
         async function pushFirstCategoryBlockToIndex() {
@@ -5013,7 +5435,8 @@ if (isset($_GET['action'])) {
                     return;
                 }
                 const idx = data.content || '';
-                const merged = mergeCategoryBlockIntoIndex(idx, block);
+                const newerEntry = newerIndexEntry(idx, block);
+                const merged = mergeCategoryBlockIntoIndex(idx, block, { explicitInsert: true });
                 if (!merged.ok) {
                     toast(merged.msg);
                     return;
@@ -5032,6 +5455,7 @@ if (isset($_GET['action'])) {
                     return;
                 }
                 toast('To-INDEX: ' + merged.msg);
+                if (newerEntry) showIndexDateNotice(newerEntry);
             } catch (e) {
                 console.error(e);
                 toast('To-INDEX: ' + (e.message || String(e)));
@@ -5897,6 +6321,7 @@ if (isset($_GET['action'])) {
                         }
                     }
                 }
+                if (!_isRestoringTab) scheduleLiveH1TitleSync();
                 if (isSyncFromDesign) return;
                 if (isApplyingUndoRedo) return;
                 // Collapse multiple consecutive spaces in code (preserve leading indentation).
@@ -6434,6 +6859,8 @@ if (isset($_GET['action'])) {
                     lastPreviewHadBody: /<body\b/i.test(data.content)
                 });
                 tabs.push(tab);
+                    setTimeout(() => checkArticleIdentity(tab), 0);
+                    scheduleIndexOrderCheck();
                 activeTabId = tab.id;
 
                 currentFile = data.file;
@@ -9751,6 +10178,8 @@ if (isset($_GET['action'])) {
                     lastPreviewHadBody: /<body\b/i.test(cnt)
                 });
                 tabs.push(tab);
+                    setTimeout(() => checkArticleIdentity(tab), 0);
+                    scheduleIndexOrderCheck();
                 activeTabId = tab.id;
 
                 currentFile = data.file;
@@ -9827,6 +10256,8 @@ if (isset($_GET['action'])) {
                     lastPreviewHadBody: /<body\b/i.test(content)
                 });
                 tabs.push(tab);
+                    setTimeout(() => checkArticleIdentity(tab), 0);
+                    scheduleIndexOrderCheck();
                 activeTabId = tab.id;
                 var newTabId = tab.id;
 
@@ -9875,6 +10306,8 @@ if (isset($_GET['action'])) {
                             for (var ti = 0; ti < tabs.length; ti++) {
                                 if (tabs[ti].id === newTabId) {
                                     tabs[ti].filePath = resolvedPath;
+                                    const resolvedTab = tabs[ti];
+                                    setTimeout(() => checkArticleIdentity(resolvedTab), 0);
                                     tabs[ti].tabLabel = getTabLabel(editor.getValue(), resolvedPath);
                                     tabs[ti].editorContent = editor.getValue();
                                     refreshTabLinkedCategory(tabs[ti]);

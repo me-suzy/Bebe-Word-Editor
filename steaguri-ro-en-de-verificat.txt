@@ -1,0 +1,63 @@
+STEAGURI RO <-> EN - CE A RAMAS (Principal\ro si Principal\en)
+======================================================================
+
+Toate perechile RO <-> EN existente sunt acum reciproce.
+Au ramas doar paginile fara traducere, cu steag provizoriu:
+
+1) ARTICOLE RO NETRADUSE INCA IN EN  [50]  (cele mai noi primele)
+   Cand le traduci, pune in steagul EN din pagina RO link-ul traducerii.
+
+   ro/runda-finala.html                                           Octombrie 25, 2026   steag EN provizoriu: en/runda-finala.html
+   ro/prin-foc-si-sabie.html                                      Octombrie 22, 2026   steag EN provizoriu: en/animae-dimidium-meae.html
+   ro/legea-deconspirarii.html                                    Octombrie 18, 2026   steag EN provizoriu: en/the-law-of-the-unique-personality.html
+   ro/triumful-mainii-nevazute.html                               Octombrie 13, 2026   steag EN provizoriu: en/triumful-mainii-nevazute.html
+   ro/quo-vadis-domine.html                                       Octombrie 10, 2026   steag EN provizoriu: en/trinity-speculum.html
+   ro/non-nobis.html                                              Octombrie 09, 2026   steag EN provizoriu: en/non-nobis.html
+   ro/qui-spectat-non-regit.html                                  Octombrie 06, 2026   steag EN provizoriu: en/qui-spectat-non-regit.html
+   ro/epistola-nigra.html                                         Octombrie 01, 2026   steag EN provizoriu: en/epistola-nigra.html
+   ro/demascarea-II.html                                          Septembrie 26, 2026  steag EN provizoriu: en/demascarea-II.html
+   ro/demascarea.html                                             Septembrie 23, 2026  steag EN provizoriu: en/demascarea.html
+   ro/potestas-per-speciem.html                                   Septembrie 21, 2026  steag EN provizoriu: en/potestas-per-speciem.html
+   ro/triplex-cautela.html                                        Septembrie 14, 2026  steag EN provizoriu: en/triplex-cautela.html
+   ro/occasio-reiecta.html                                        Septembrie 04, 2026  steag EN provizoriu: en/occasio-reiecta.html
+   ro/signa-divinae-vocationis.html                               August 31, 2026      steag EN provizoriu: en/the-eternal-eye-watches-from-the-heart-of-the-desert.html
+   ro/locus-absconditus.html                                      August 25, 2026      steag EN provizoriu: en/locus-absconditus.html
+   ro/fato-positus.html                                           August 21, 2026      steag EN provizoriu: en/eternal-fragment.html
+   ro/lectia-nevazuta-a-sufletului.html                           August 17, 2026      steag EN provizoriu: en/lectia-nevazuta-a-sufletului.html
+   ro/scientia-deorum.html                                        August 10, 2026      steag EN provizoriu: en/scientia-deorum.html
+   ro/habajdir.html                                               August 03, 2026      steag EN provizoriu: en/the-story-becomes-the-blood-of-the-writer.html
+   ro/rolul-memoriei-in-intelegerea-viselor.html                  Iulie 28, 2026       steag EN provizoriu: en/omnium-vessel.html
+   ro/cheia-nevazuta-a-secretului.html                            Iulie 25, 2026       steag EN provizoriu: en/cheia-nevazuta-a-secretului.html
+   ro/labor-sine-teste.html                                       Iulie 22, 2026       steag EN provizoriu: en/the-last-word-belongs-to-heaven.html
+   ro/homo-non-bestia.html                                        Iulie 13, 2026       steag EN provizoriu: en/homo-non-bestia.html
+   ro/sub-custodia-dei.html                                       Iulie 07, 2026       steag EN provizoriu: en/from-far-you-see-close.html
+   ro/stiinta-pe-care-banii-nu-o-pot-cumpara.html                 Iulie 02, 2026       steag EN provizoriu: en/stiinta-pe-care-banii-nu-o-pot-cumpara.html
+   ro/omul-pe-care-moartea-nu-l-a-putut-atinge.html               Iunie 29, 2026       steag EN provizoriu: en/omul-pe-care-moartea-nu-l-a-putut-atinge.html
+   ro/fiat-iustitia.html                                          Iunie 26, 2026       steag EN provizoriu: en/sidus-verbum.html
+   ro/mainile-care-pastreaza-timpul.html                          Iunie 23, 2026       steag EN provizoriu: en/mainile-care-pastreaza-timpul.html
+   ro/vigila-semper.html                                          Iunie 18, 2026       steag EN provizoriu: en/vigila-semper.html
+   ro/taina-din-adancul-scripturii.html                           Iunie 15, 2026       steag EN provizoriu: en/taina-din-adancul-scripturii.html
+   ro/cartea-care-a-scris-omenirea.html                           Iunie 08, 2026       steag EN provizoriu: en/cartea-care-a-scris-omenirea.html
+   ro/cine-va-conduce-lumea-din-umbra.html                        Iunie 04, 2026       steag EN provizoriu: en/trinity-speculum.html
+   ro/rasturnarea-ascunsa-a-lumii.html                            Iunie 02, 2026       steag EN provizoriu: en/science-through-grace.html
+   ro/legea-suprema-a-creatiei.html                               Mai 28, 2026         steag EN provizoriu: en/the-law-of-value.html
+   ro/umbra-non-vincit-fatum.html                                 Mai 18, 2026         steag EN provizoriu: en/umbra-non-vincit-fatum.html
+   ro/piticul-nas-lung.html                                       Mai 12, 2026         steag EN provizoriu: en/piticul-nas-lung.html
+   ro/ad-ordenem-per-scientiam.html                               Mai 05, 2026         steag EN provizoriu: en/ad-ordenem-per-scientiam.html
+   ro/scala-trium-nominum.html                                    Aprilie 29, 2026     steag EN provizoriu: en/animae-dimidium-meae.html
+   ro/solus-custos-absconditus-finis-mali.html                    Aprilie 22, 2026     steag EN provizoriu: en/solus-custos-absconditus-finis-mali.html
+   ro/creatorul-de-vieti.html                                     Aprilie 17, 2026     steag EN provizoriu: en/amissa-s-letter.html
+   ro/clepsidra-care-sfideaza-timpul.html                         Martie 09, 2026      steag EN provizoriu: en/3-leadership-lessons-from-antoine-bourdelle.html
+   ro/heroes-intus.html                                           Septembrie 28, 2025  steag EN provizoriu: en/to-listen-with-an-open-heart-to-an-untold-story.html
+   ro/cartea-pe-care-focul-nu-o-poate-atinge.html                 Septembrie 07, 2025  steag EN provizoriu: en/the-living-manuscript-of-eternity.html
+   ro/pax-recusata.html                                           August 29, 2025      steag EN provizoriu: en/pax-recusata.html
+   ro/imitatio-prodit.html                                        Mai 10, 2025         steag EN provizoriu: en/imitatio-prodit.html
+   ro/donum-serotinum.html                                        Martie 20, 2025      steag EN provizoriu: en/lex-magna-operis.html
+   ro/cum-descoperi-rostul-unei-lumi-ce-se-repeta.html            Iulie 23, 2022       steag EN provizoriu: en/god-set-everything-in-motion-for-the-benefit-of-his-work.html
+   ro/cum-arata-imagini-robineti-centrala-termica-ariston.html    Aprilie 24, 2020     steag EN provizoriu: en/the-struggle-of-tenacious-souls.html
+   ro/profetia-ghicitoarei-din-desert.html                        Iunie 29, 2010       steag EN provizoriu: en/the-relentless-torture-of-the-unknown.html
+   ro/directory.html                                              Mai 10, 2008         steag EN provizoriu: en/directory
+
+2) PAGINI EN FARA PAGINA RO  [1]
+
+   en/privacy-policy.html                                         May 10, 2008         steag RO provizoriu: termeni-si-conditii.html

@@ -726,6 +726,140 @@ if (isset($_GET['action'])) {
     $action = $_GET['action'];
     header('Content-Type: application/json; charset=utf-8');
 
+    // Versiunea editorului (data modificarii acestui fisier) — pagina o compara ca sa ceara reincarcare.
+    if ($action === 'version') {
+        clearstatcache(true, __FILE__);
+        echo json_encode(['ok' => true, 'v' => (string) filemtime(__FILE__)]);
+        exit;
+    }
+
+    // Butonul „Trimite E-mail”: ruleaza in fundal monitor_index.py (care trimite pe email ultimul articol din ro/index.html)
+    // si intoarce tot ce a afisat scriptul. Cu check=1 doar verifica (Python, script, articolul care s-ar trimite) — NU trimite.
+    if ($action === 'sendArticleEmail' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $scriptDir = 'e:/Carte/BB/17 - Site Leadership/alte/Ionel Balauta/Aryeht/Task 1 - Traduce tot site-ul/Doar Google Web/Andreea/Meditatii/2023/MAIL TEXT';
+        $script = $scriptDir . '/monitor_index.py';
+        $indexRo = 'e:/Carte/BB/17 - Site Leadership/Principal/ro/index.html';
+        $python = 'C:/Users/necul/AppData/Local/Programs/Python/Python312/python.exe';
+        if (!is_file($python)) $python = 'python';
+        if (!is_file($script)) {
+            echo json_encode(['ok' => false, 'error' => 'Nu gasesc scriptul: ' . $script], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        // Articolul pe care il va trimite scriptul (acelasi regex ca in monitor_index.py)
+        $articleLink = '';
+        $idx = @file_get_contents($indexRo);
+        if ($idx !== false && preg_match('/<td><span class="den_articol"><a href="([^"]+)" class="linkMare">([^<]*)/', $idx, $am)) {
+            $articleLink = $am[1];
+            $articleTitle = html_entity_decode($am[2], ENT_QUOTES, 'UTF-8');
+        }
+        if (!empty($_POST['check'])) {
+            echo json_encode(['ok' => true, 'python' => $python, 'link' => $articleLink,
+                'title' => isset($articleTitle) ? $articleTitle : ''], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        @set_time_limit(300);
+        $env = getenv();
+        if (!is_array($env)) $env = [];
+        $pyDir = ($python !== 'python') ? str_replace('/', '\\', dirname($python)) : '';
+        $pathKey = 'PATH';
+        foreach ($env as $k => $v) { if (strtoupper($k) === 'PATH') { $pathKey = $k; break; } }
+        if ($pyDir !== '') $env[$pathKey] = $pyDir . ';' . (isset($env[$pathKey]) ? $env[$pathKey] : '');
+        $env['PYTHONIOENCODING'] = 'utf-8';
+        $env['PYTHONUTF8'] = '1';
+        $proc = proc_open([$python, '-u', 'monitor_index.py'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes, $scriptDir, $env, ['bypass_shell' => true, 'create_process_group' => false]);
+        if (!is_resource($proc)) {
+            echo json_encode(['ok' => false, 'error' => 'Nu am putut porni Python (' . $python . ').'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $out = '';
+        $err = '';
+        $start = time();
+        $timedOut = false;
+        while (true) {
+            $status = proc_get_status($proc);
+            $out .= (string) stream_get_contents($pipes[1]);
+            $err .= (string) stream_get_contents($pipes[2]);
+            if (!$status['running']) break;
+            if (time() - $start > 240) { $timedOut = true; proc_terminate($proc); break; }
+            usleep(150000);
+        }
+        $out .= (string) stream_get_contents($pipes[1]);
+        $err .= (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($proc);
+        if (isset($status['exitcode']) && $status['exitcode'] !== -1) $exit = $status['exitcode'];
+        $sent = (strpos($out, 'Email trimis cu succes!') !== false);
+        echo json_encode(['ok' => true, 'sent' => $sent, 'output' => $out, 'errors' => $err,
+            'exitCode' => $exit, 'timedOut' => $timedOut, 'link' => $articleLink], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // Cele mai noi N articole dintr-un folder (ro/ sau en/), dupa data „On Luna zi, an” de sub <h1 class="den_articol">.
+    // Paginile de categorii/index nu au <h1 den_articol>, deci sunt ignorate.
+    // Cache in folderul temp: un fisier e recitit doar daca i s-a schimbat data modificarii.
+    if ($action === 'recentArticles') {
+        $dir = rtrim(resolve_path(isset($_GET['dir']) ? $_GET['dir'] : '', $ROOT), '/');
+        $limit = max(1, min(10, (int) (isset($_GET['n']) ? $_GET['n'] : 2)));
+        @set_time_limit(300); // prima citire (fara cache) poate dura pe un disc lent
+        if ($dir === '' || !is_dir($dir)) {
+            echo json_encode(['ok' => false, 'error' => 'Folderul nu exista: ' . $dir], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+        $months = ['ianuarie' => 1, 'februarie' => 2, 'martie' => 3, 'aprilie' => 4, 'mai' => 5, 'iunie' => 6,
+            'iulie' => 7, 'august' => 8, 'septembrie' => 9, 'octombrie' => 10, 'noiembrie' => 11, 'decembrie' => 12,
+            'january' => 1, 'february' => 2, 'march' => 3, 'april' => 4, 'may' => 5, 'june' => 6,
+            'july' => 7, 'september' => 9, 'october' => 10, 'november' => 11, 'december' => 12];
+        $cacheFile = sys_get_temp_dir() . '/htmleditor_article_dates_' . md5(strtolower($dir)) . '.json';
+        $cache = [];
+        if (is_file($cacheFile)) {
+            $tmp = json_decode((string) @file_get_contents($cacheFile), true);
+            if (is_array($tmp)) $cache = $tmp;
+        }
+        $newCache = [];
+        $list = [];
+        foreach ((array) @scandir($dir) as $name) {
+            if (!preg_match('/\.html?$/i', $name)) continue;
+            $path = $dir . '/' . $name;
+            $mtime = @filemtime($path);
+            if ($mtime === false) continue;
+            if (isset($cache[$name]) && $cache[$name]['m'] === $mtime) {
+                $entry = $cache[$name];
+            } else {
+                $entry = ['m' => $mtime, 't' => null, 'd' => ''];
+                $head = @file_get_contents($path, false, null, 0, 120000);
+                if ($head !== false &&
+                    preg_match('/<h1\b[^>]*class\s*=\s*["\'][^"\']*\bden_articol\b/i', $head, $hm, PREG_OFFSET_CAPTURE) &&
+                    preg_match('/class\s*=\s*["\'][^"\']*\btext_dreapta\b[^"\']*["\'][^>]*>(.*?)<\/td>/is', substr($head, $hm[0][1]), $td)) {
+                    $plain = trim(preg_replace('/\s+/u', ' ', str_ireplace(['&nbsp;', '&#160;'], ' ', strip_tags($td[1]))));
+                    if (preg_match('/\bOn\s+([^\s\d,]+)\s+(\d{1,2}),?\s+(\d{4})\b/iu', $plain, $dm)) {
+                        $mon = strtolower($dm[1]);
+                        if (isset($months[$mon]) && checkdate($months[$mon], (int) $dm[2], (int) $dm[3])) {
+                            $entry['t'] = mktime(0, 0, 0, $months[$mon], (int) $dm[2], (int) $dm[3]);
+                            $entry['d'] = $dm[0];
+                        }
+                    }
+                }
+            }
+            $newCache[$name] = $entry;
+            if ($entry['t'] !== null) {
+                $list[] = ['file' => $path, 'ts' => $entry['t'], 'date' => $entry['d'], 'mtime' => $mtime];
+            }
+        }
+        @file_put_contents($cacheFile, json_encode($newCache));
+        usort($list, function ($a, $b) {
+            if ($a['ts'] !== $b['ts']) return $b['ts'] - $a['ts'];
+            return $b['mtime'] - $a['mtime'];
+        });
+        echo json_encode(['ok' => true, 'articles' => array_slice($list, 0, $limit)], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($action === 'list') {
         $root = rtrim($ROOT, "/");
         $subdir = isset($_GET['dir']) ? $_GET['dir'] : '';
@@ -895,6 +1029,11 @@ if (isset($_GET['action'])) {
     if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $file = isset($_POST['file']) ? $_POST['file'] : '';
         $full = resolve_path($file, $ROOT);
+        // Template-ul pentru butonul NEW nu se suprascrie niciodata din editor.
+        if (in_array(strtolower(basename(str_replace('\\', '/', $full))), ['model-new', 'model-new.html'], true)) {
+            echo json_encode(['ok' => false, 'error' => 'model-new este template si nu poate fi suprascris. Schimba CANONICAL LINK si salveaza ca pagina noua.'], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
         $dir = dirname($full);
         if (!is_dir($dir)) {
             echo json_encode(['ok' => false, 'error' => 'Directorul nu exista: ' . $dir]);
@@ -2117,7 +2256,11 @@ if (isset($_GET['action'])) {
             </div>
             <input type="file" id="filePicker" accept=".html,.htm,.css,.js,.php" style="display:none">
             <div class="overlay-actions">
-                <button class="btn btn-ghost" onclick="hideOverlay()">Continua la editor</button>
+                <button class="btn" id="btnSendArticleEmail" onclick="sendLatestArticleEmail()"
+                    title="Trimite pe email ultimul articol din ro/index.html (ruleaza monitor_index.py in fundal)"
+                    style="background:#16a34a;color:#fff;border-color:#15803d"><i class="fas fa-envelope"></i> Trimite E-mail</button>
+                <button class="btn btn-primary" onclick="openNewFromModel()" title="Deschide model.html">NEW</button>
+                <button class="btn btn-ghost" onclick="continueToEditor()">Continua la editor</button>
             </div>
         </div>
     </div>
@@ -2920,6 +3063,7 @@ if (isset($_GET['action'])) {
             if (tab.type !== 'browser' && !await checkArticleIdentity(tab, true)) return;
             idx = tabs.findIndex(t => t.id === tabId);
             if (idx < 0) return;
+            scheduleRecentArticlesCheck();
 
             // Browser tabs: close popup window, no save prompt needed
             if (tab.type === 'browser') {
@@ -3704,10 +3848,70 @@ if (isset($_GET['action'])) {
             clearSasaDesignHighlight();
         }
 
+        // ── Markdown (text copiat de la AI) → HTML-ul site-ului ──
+        // **paragraf intreg**  → <p class="text_obisnuit2">…</p>
+        // paragraf normal      → <p class="text_obisnuit">…</p>
+        // **cuvinte** in text  → <span class="text_obisnuit2">…</span>
+        // *cuvinte* / _cuvinte_ → <em>…</em>   (***x*** → bold + italic)
+        // # Titlu → paragraf bold; > citat, `cod`, ~~taiat~~, [text](url), ---, "* item" sunt curatate/convertite.
+        function looksLikeMarkdown(text) {
+            return /\*\*\S[^\n]*?\*\*|__\S[^\n]*?__|(^|[^\w*\\])\*(?=\S)[^*\n]*?\S\*(?![\w*])|(^|[^\w\\])_(?=\S)[^_\n]*?\S_(?!\w)|^[ \t]{0,3}#{1,6}[ \t]+\S|^[ \t]{0,3}>[ \t]?\S|^[ \t]*[*+][ \t]+\S|~~\S[^\n]*?~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)/m.test(String(text || ''));
+        }
+        function markdownInlineToHtml(s) {
+            const escaped = [];
+            s = String(s).replace(/\\([\\`*_{}\[\]()#+\-.!~>])/g, function (m, c) {
+                escaped.push(c);
+                return '\u0001' + (escaped.length - 1) + '\u0001';
+            });
+            s = escapeHtml(s);
+            s = s.replace(/`([^`]+)`/g, '$1');
+            s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+[^)]*)?\)/g, function (m, label, url) {
+                return '<a href="' + url.replace(/"/g, '&quot;') + '">' + label + '</a>';
+            });
+            const boldItalic = '<span class="text_obisnuit2"><em>$1</em></span>';
+            s = s.replace(/\*\*\*(?=\S)(.*?\S)\*\*\*/g, boldItalic);
+            s = s.replace(/___(?=\S)(.*?\S)___/g, boldItalic);
+            s = s.replace(/\*\*(?=\S)(.*?\S)\*\*/g, '<span class="text_obisnuit2">$1</span>');
+            s = s.replace(/__(?=\S)(.*?\S)__/g, '<span class="text_obisnuit2">$1</span>');
+            s = s.replace(/(^|[^\w*])\*(?=\S)([^*]*?\S)\*(?![\w*])/g, '$1<em>$2</em>');
+            s = s.replace(/(^|[^\w])_(?=\S)([^_]*?\S)_(?!\w)/g, '$1<em>$2</em>');
+            s = s.replace(/~~(?=\S)(.*?\S)~~/g, '<s>$1</s>');
+            s = s.replace(/\u0001(\d+)\u0001/g, function (m, i) { return escapeHtml(escaped[+i]); });
+            return s;
+        }
+        // Fiecare rand ne-gol devine un paragraf: [{ cls, html }]
+        function markdownToParagraphBlocks(text) {
+            const blocks = [];
+            String(text || '').replace(/\r\n?/g, '\n').split('\n').forEach(function (raw) {
+                let line = raw.replace(/ /g, ' ').trim();
+                if (!line) return;
+                if (/^([-*_])(?:\s*\1){2,}$/.test(line)) return; // linie orizontala ---
+                let cls = 'text_obisnuit';
+                const heading = line.match(/^#{1,6}\s+(.*?)\s*#*$/);
+                if (heading) {
+                    line = heading[1].replace(/\*\*|__/g, '');
+                    cls = 'text_obisnuit2';
+                }
+                line = line.replace(/^(?:>\s?)+/, '').replace(/^[*+]\s+/, '- ').replace(/ {2,}/g, ' ').trim();
+                if (!line) return;
+                const whole = line.match(/^(\*\*|__)(?=\S)(.*\S)\1$/);
+                if (whole && whole[2].indexOf(whole[1]) === -1) {
+                    cls = 'text_obisnuit2';
+                    line = whole[2];
+                }
+                blocks.push({ cls: cls, html: markdownInlineToHtml(line) });
+            });
+            return blocks;
+        }
+
         // Wrap raw text in <p class="text_obisnuit">…</p> for SASA insert.
         // Each non-empty line becomes its own paragraph.
         function wrapTextForSasa(rawText) {
             if (!rawText) return '';
+            if (looksLikeMarkdown(rawText)) {
+                return markdownToParagraphBlocks(rawText)
+                    .map(b => '<p class="' + b.cls + '">' + b.html + '</p>').join('\n');
+            }
             const prefix = '<p class="text_obisnuit">';
             const suffix = '</p>';
             const lines = rawText.split(/\r?\n/).filter(l => l.trim().length > 0);
@@ -5166,7 +5370,139 @@ if (isset($_GET['action'])) {
         function scheduleIndexOrderCheck() {
             clearTimeout(indexOrderTimer);
             indexOrderTimer = setTimeout(checkIndexArticleOrder, 500);
+            scheduleRecentArticlesCheck();
         }
+
+        // ── Verificare in fundal: cele mai noi 2 articole (dupa data din pagina, ro/ si en/)
+        //    exista in pagina lor de categorie si in index.html? Daca nu, apare un anunt.
+        //    Ruleaza la pornire, la deschiderea/inchiderea unei pagini, dupa Save, ADD-CAT si To-INDEX.
+        var RECENT_ARTICLES_TO_CHECK = 2;
+        var recentArticlesTimer = null, recentArticlesRunning = false, recentArticlesPending = false;
+        function scheduleRecentArticlesCheck(delay) {
+            clearTimeout(recentArticlesTimer);
+            recentArticlesTimer = setTimeout(checkRecentArticlesInLists, delay == null ? 1500 : delay);
+        }
+        async function recentArticlesLoad(path) {
+            const apiBase = window.location.pathname.replace(/[#?].*$/, '');
+            const d = await (await fetch(apiBase + '?action=load&file=' + encodeURIComponent(path), { cache: 'no-store' })).json();
+            if (!d.ok) throw new Error(d.error || ('Nu pot citi ' + path));
+            return d.content || '';
+        }
+        function recentArticlesListKeys(html) {
+            const r = findCategoryListRegion(html);
+            if (!r.ok) return null;
+            return enumerateIndexCategoryBlocks(html, r.divEndGlobal, r.regionEnd).map(function (b) { return b.key; });
+        }
+        function recentArticlesShortPath(p) {
+            return String(p || '').replace(/\\/g, '/').split('/').slice(-2).join('/');
+        }
+        async function checkRecentArticlesInLists() {
+            if (recentArticlesRunning) { recentArticlesPending = true; return; }
+            recentArticlesRunning = true;
+            const problems = [];
+            const apiBase = window.location.pathname.replace(/[#?].*$/, '');
+            try {
+                for (const idxPath of [TO_INDEX_RO_HTML_PATH, TO_INDEX_EN_HTML_PATH]) {
+                    const dir = idxPath.replace(/\/[^\/]*$/, '');
+                    let res = null;
+                    try {
+                        res = await (await fetch(apiBase + '?action=recentArticles&n=' + RECENT_ARTICLES_TO_CHECK +
+                            '&dir=' + encodeURIComponent(dir), { cache: 'no-store' })).json();
+                    } catch (e) { continue; }
+                    if (!res || !res.ok || !res.articles) continue;
+                    let idxKeys = null;
+                    try { idxKeys = recentArticlesListKeys(await recentArticlesLoad(idxPath)); } catch (e) { }
+                    for (const art of res.articles) {
+                        const item = { file: art.file, date: art.date, missing: [], note: '' };
+                        try {
+                            const built = buildCategoryBlockFromArticleHtml(await recentArticlesLoad(art.file));
+                            if (!built || !built.ok) {
+                                const tmp = document.createElement('textarea');
+                                tmp.innerHTML = (built && built.msg) || '';
+                                item.note = 'Nu pot construi fragmentul pentru liste: ' + tmp.value;
+                            } else {
+                                const key = normalizeArticleKeyFromBlock(built.block);
+                                const catPath = categoryPathBesideArticle(art.file, built.categoryFile);
+                                let catKeys = null;
+                                try { catKeys = recentArticlesListKeys(await recentArticlesLoad(catPath)); }
+                                catch (e) { item.note = 'Nu pot citi pagina de categorie ' + recentArticlesShortPath(catPath) + '.'; }
+                                if (catKeys && catKeys.indexOf(key) === -1) item.missing.push(recentArticlesShortPath(catPath));
+                                if (idxKeys && idxKeys.indexOf(key) === -1) item.missing.push(recentArticlesShortPath(idxPath));
+                            }
+                        } catch (e) {
+                            item.note = e.message;
+                        }
+                        if (item.missing.length || item.note) problems.push(item);
+                    }
+                }
+            } finally {
+                recentArticlesRunning = false;
+            }
+            showRecentArticlesNotice(problems);
+            if (recentArticlesPending) { recentArticlesPending = false; scheduleRecentArticlesCheck(500); }
+        }
+        function showRecentArticlesNotice(problems) {
+            let box = document.getElementById('recentArticlesNotice');
+            if (!problems.length) { if (box) box.remove(); return; }
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'recentArticlesNotice';
+                box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99990;max-width:520px;' +
+                    'background:#1f2937;border:2px solid #f59e0b;border-radius:10px;padding:14px 16px;color:#eee;' +
+                    'font-size:15px;line-height:1.45;box-shadow:0 10px 30px rgba(0,0,0,.55)';
+                document.body.appendChild(box);
+            }
+            box.replaceChildren();
+            const head = document.createElement('div');
+            head.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:8px';
+            head.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:#f59e0b"></i>' +
+                '<b style="flex:1">Articole noi nepreluate în liste</b>';
+            const close = document.createElement('button');
+            close.className = 'btn btn-ghost';
+            close.textContent = '×';
+            close.title = 'Ascunde (reapare la următoarea verificare)';
+            close.style.cssText = 'padding:2px 10px;font-size:18px';
+            close.onclick = function () { box.remove(); };
+            head.appendChild(close);
+            box.appendChild(head);
+            problems.forEach(function (p) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid #374151';
+                const text = document.createElement('div');
+                text.style.flex = '1';
+                const title = document.createElement('div');
+                title.innerHTML = '<b></b> <span style="color:#9ca3af"></span>';
+                title.querySelector('b').textContent = recentArticlesShortPath(p.file);
+                title.querySelector('span').textContent = '(' + String(p.date || '').replace(/^On\s+/i, '') + ')';
+                text.appendChild(title);
+                const det = document.createElement('div');
+                det.style.color = '#fbbf24';
+                det.textContent = p.missing.length ? 'Lipsește din: ' + p.missing.join(', ') : p.note;
+                text.appendChild(det);
+                if (p.missing.length && p.note) {
+                    const n2 = document.createElement('div');
+                    n2.style.color = '#9ca3af';
+                    n2.textContent = p.note;
+                    text.appendChild(n2);
+                }
+                row.appendChild(text);
+                const open = document.createElement('button');
+                open.className = 'btn btn-primary';
+                open.textContent = 'Deschide';
+                open.style.cssText = 'padding:4px 12px;font-size:14px;white-space:nowrap';
+                open.onclick = function () { openFile(p.file); };
+                row.appendChild(open);
+                box.appendChild(row);
+            });
+            const hint = document.createElement('div');
+            hint.style.cssText = 'color:#9ca3af;font-size:13px;margin-top:6px';
+            hint.textContent = 'Deschide articolul și apasă ADD-CAT / To-INDEX (sau salvează-l).';
+            box.appendChild(hint);
+        }
+        document.addEventListener('click', function (e) {
+            const b = e.target && e.target.closest ? e.target.closest('#btnAddCat, #btnToIndex') : null;
+            if (b) scheduleRecentArticlesCheck(3000);
+        }, true);
 
         function showIndexOrderReport(reports) {
             let dialog = document.getElementById('indexOrderReport');
@@ -6817,6 +7153,73 @@ if (isset($_GET['action'])) {
             });
         }
 
+        // Butonul NEW din fereastra de start: deschide pagina model si afiseaza un memento.
+        // Template-ul nu se salveaza niciodata peste el: la Save, pagina se scrie intr-un fisier nou
+        // numit dupa CANONICAL (ex. .../bebe-new-go.html -> bebe-new-go.html), iar model-new.html ramane neatins.
+        // Fara extensie intentionat: daca ajunge din greseala pe server, nu e servit ca pagina .html.
+        var NEW_MODEL_PATH = 'e:/Carte/BB/17 - Site Leadership/Principal/ro/model-new';
+        function normTplPath(p) { return String(p || '').replace(/\\/g, '/').replace(/\/+/g, '/').toLowerCase(); }
+        function isTemplatePath(p) { return !!p && normTplPath(p) === normTplPath(NEW_MODEL_PATH); }
+        async function openNewFromModel() {
+            await openFile(NEW_MODEL_PATH);
+            if (isTemplatePath(currentFile)) showModelReminder();
+        }
+        async function resolveTemplateSaveTarget(html) {
+            var tplName = NEW_MODEL_PATH.split('/').pop();
+            var link = String(html || '').match(/<link\b[^>]*\brel\s*=\s*["']canonical["'][^>]*>/i);
+            var href = link ? (link[0].match(/\bhref\s*=\s*["']([^"']*)["']/i) || [])[1] : '';
+            var name = '';
+            if (href) {
+                name = href.split('#')[0].split('?')[0].replace(/\/+$/, '').split('/').pop() || '';
+                try { name = decodeURIComponent(name); } catch (e) { }
+            }
+            var tplBase = tplName.replace(/\.html?$/i, '').toLowerCase();
+            if (!name || !/\.html?$/i.test(name) || name.replace(/\.html?$/i, '').toLowerCase() === tplBase) {
+                showErrorPopup(
+                    'Acesta este TEMPLATE-ul (' + tplName + ') si nu poate fi salvat peste el.\n\n' +
+                    'Schimba mai intai CANONICAL LINK, de exemplu:\n' +
+                    '<link rel="canonical" href="https://neculaifantanaru.com/pagina-noua.html" />\n\n' +
+                    'La Save, pagina se va salva ca fisier nou cu numele din canonical.');
+                return null;
+            }
+            var dir = NEW_MODEL_PATH.replace(/\/[^\/]*$/, '');
+            var input = window.prompt(
+                'Pagina noua (din template) va fi salvata ca:\n' +
+                '(poti schimba folderul daca vrei)', dir + '/' + name);
+            if (input === null) { toast('Salvare anulata'); return null; }
+            input = input.trim().replace(/\\/g, '/');
+            if (!input) { toast('Salvare anulata'); return null; }
+            if (isTemplatePath(input)) {
+                showErrorPopup('Nu poti salva peste template-ul ' + tplName + '. Alege alt nume.');
+                return null;
+            }
+            try {
+                var chk = await (await fetch('?action=load&file=' + encodeURIComponent(input))).json();
+                if (chk && chk.ok && !window.confirm('Fisierul exista deja:\n' + input + '\n\nIl suprascrii?')) {
+                    toast('Salvare anulata');
+                    return null;
+                }
+            } catch (eChk) { }
+            return input;
+        }
+        function showModelReminder() {
+            var old = document.getElementById('modelReminderPopup');
+            if (old) old.remove();
+            var box = document.createElement('div');
+            box.id = 'modelReminderPopup';
+            box.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)';
+            box.innerHTML =
+                '<div style="background:#1f2937;border:2px solid #facc15;border-radius:10px;padding:24px 32px;max-width:520px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.6)">' +
+                '<div style="font-size:22px;font-weight:700;color:#facc15;margin-bottom:10px"><i class="fas fa-exclamation-triangle"></i> Atentie</div>' +
+                '<div style="font-size:18px;color:#eee;margin-bottom:20px">Schimba <b>TITLUL</b> si <b>CANONICAL LINK</b></div>' +
+                '<button class="btn btn-primary" style="font-size:16px;padding:8px 28px">OK</button></div>';
+            box.addEventListener('click', function (e) {
+                if (e.target === box || e.target.tagName === 'BUTTON') box.remove();
+            });
+            document.body.appendChild(box);
+            box.querySelector('button').focus();
+        }
+
         async function openFile(path, el) {
             // Check if file is already open in a tab
             var existing = findTabByPath(path);
@@ -6920,6 +7323,13 @@ if (isset($_GET['action'])) {
                 }
                 currentFile = trimmed;
             }
+            var savedFromTemplate = null, templateWritten = false;
+            if (isTemplatePath(currentFile)) {
+                var tplTarget = await resolveTemplateSaveTarget(editor.getValue());
+                if (!tplTarget) return;
+                savedFromTemplate = currentFile;
+                currentFile = tplTarget;
+            }
             try {
                 var rawContent = editor.getValue();
                 var contentToSave = rawContent;
@@ -6958,7 +7368,12 @@ if (isset($_GET['action'])) {
                 body.append('content', contentToSave);
                 const res = await fetch('?action=save', { method: 'POST', body });
                 const data = await res.json();
-                if (!data.ok) { toast('Eroare la salvare: ' + data.error); return; }
+                if (!data.ok) {
+                    if (savedFromTemplate) currentFile = savedFromTemplate;
+                    toast('Eroare la salvare: ' + data.error);
+                    return;
+                }
+                if (savedFromTemplate) { templateWritten = true; addToRecentFiles(currentFile); }
                 // Dacă doar serverul a sincronizat meta (client vechi / cache), reîncarcă fișierul salvat
                 if (data.metaSynced && contentToSave === rawContent && data.file) {
                     try {
@@ -6996,6 +7411,7 @@ if (isset($_GET['action'])) {
                     if (tab) {
                         tab.isDirty = false;
                         tab.filePath = currentFile;
+                        tab.fileName = shortName(currentFile);
                         tab.originalContent = contentToSave;
                         tab.originalContentNorm = normalizeHtmlForCompare(tab.originalContent);
                         tab.editorContent = tab.originalContent;
@@ -7029,13 +7445,16 @@ if (isset($_GET['action'])) {
                 // Silent save: NO preview reload — avoids page flicker
                 // Preview is already up-to-date (changes are synced live)
                 toast('Salvat!');
+                scheduleRecentArticlesCheck(2500);
             } catch (e) {
+                if (savedFromTemplate && !templateWritten) currentFile = savedFromTemplate;
                 toast('Eroare la salvare');
             }
         }
 
         function isCurrentFileHtml() {
             if (!currentFile) return true;
+            if (isTemplatePath(currentFile)) return true; // template-ul NEW e HTML, desi n-are extensie
             const n = currentFile.toLowerCase();
             return n.endsWith('.html') || n.endsWith('.htm');
         }
@@ -7821,15 +8240,62 @@ if (isset($_GET['action'])) {
 
             function insertPlainTextParagraphsAtSelection(range, paragraphs) {
                 if (!paragraphs || paragraphs.length < 2) return false;
-                const firstP = closestPasteParagraph(range.startContainer);
+                return insertParagraphBlocksAtSelection(range, paragraphs.map(function (txt) {
+                    return { cls: 'text_obisnuit', text: txt };
+                }));
+            }
+
+            // Paste de Markdown: un singur paragraf in mijlocul unui text existent se
+            // insereaza inline (<em>/<span>); altfel paragrafele inlocuiesc blocul selectat.
+            function insertMarkdownAtSelection(range, sel, blocks, rawText) {
+                if (!blocks.length) return false;
+                if (blocks.length === 1) {
+                    const p = closestPasteParagraph(range.startContainer);
+                    const sameP = p && p === closestPasteParagraph(range.endContainer);
+                    const pText = sameP ? normalizePasteCompareText(p.textContent) : '';
+                    const coversP = sameP && (!pText || normalizePasteCompareText(range.toString()) === pText);
+                    if (sameP && !coversP) {
+                        const tpl = doc.createElement('template');
+                        const lead = /^[ \t ]/.test(rawText || '') ? ' ' : '';
+                        const trail = /[ \t ]$/.test(rawText || '') ? ' ' : '';
+                        tpl.innerHTML = lead + (blocks[0].cls === 'text_obisnuit2'
+                            ? '<span class="text_obisnuit2">' + blocks[0].html + '</span>'
+                            : blocks[0].html) + trail;
+                        const lastNode = tpl.content.lastChild;
+                        range.deleteContents();
+                        range.insertNode(tpl.content);
+                        if (lastNode) {
+                            const r = doc.createRange();
+                            r.setStartAfter(lastNode);
+                            r.collapse(true);
+                            sel.removeAllRanges();
+                            sel.addRange(r);
+                        }
+                        return true;
+                    }
+                }
+                return insertParagraphBlocksAtSelection(range, blocks);
+            }
+
+            // blocks: [{ cls, text }] sau [{ cls, html }]
+            function insertParagraphBlocksAtSelection(range, blocks) {
+                let firstP = closestPasteParagraph(range.startContainer);
                 let lastP = closestPasteParagraph(range.endContainer) || firstP;
+                if (!firstP) {
+                    const swallowed = blocksFullyInsideRange(range).filter(function (b) { return b.tagName === 'P'; });
+                    if (swallowed.length) {
+                        firstP = swallowed[0];
+                        lastP = swallowed[swallowed.length - 1];
+                    }
+                }
                 if (firstP && lastP && firstP.parentNode !== lastP.parentNode) lastP = firstP;
                 const frag = doc.createDocumentFragment();
                 let lastInserted = null;
-                paragraphs.forEach(function (txt) {
+                blocks.forEach(function (b) {
                     const p = doc.createElement('p');
-                    p.className = 'text_obisnuit';
-                    p.textContent = txt;
+                    p.className = b.cls || 'text_obisnuit';
+                    if (b.html != null) p.innerHTML = b.html;
+                    else p.textContent = b.text;
                     lastInserted = p;
                     frag.appendChild(p);
                 });
@@ -7896,6 +8362,11 @@ if (isset($_GET['action'])) {
                 const sel = win && win.getSelection();
                 if (!sel || sel.rangeCount === 0) return;
                 const range = sel.getRangeAt(0);
+                if (looksLikeMarkdown(text) &&
+                    insertMarkdownAtSelection(range, sel, markdownToParagraphBlocks(text), text)) {
+                    finishPlainTextPaste();
+                    return;
+                }
                 const pasteParagraphs = splitPlainTextIntoPasteParagraphs(text);
                 if (insertPlainTextParagraphsAtSelection(range, pasteParagraphs)) {
                     finishPlainTextPaste();
@@ -8647,7 +9118,12 @@ if (isset($_GET['action'])) {
             content = content.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
 
             // ── Collect stylesheets ──
-            let allStyles = '';
+            // Stil de rezerva pentru pagini fara CSS-ul site-ului (ex. pagina goala):
+            // paragraful bold sa se vada bold. Pus primul, ca CSS-ul site-ului sa aiba prioritate.
+            let allStyles = '<style type="text/css" id="editor-fallback">'
+                + '.text_obisnuit2{font-weight:bold}'
+                + 'html,body{min-height:100%}body{min-height:calc(100vh - 20px)}'
+                + '</style>\n';
             const linkRe = /<link\b[^>]*\brel=["\']?stylesheet["\']?[^>]*\/?>/gi;
             let lm;
             while ((lm = linkRe.exec(content)) !== null) {
@@ -8713,6 +9189,91 @@ if (isset($_GET['action'])) {
         function hideOverlay() {
             const ov = document.getElementById('startOverlay');
             if (ov) ov.style.display = 'none';
+        }
+
+        // ── Butonul „Trimite E-mail”: confirmare → monitor_index.py in fundal → fereastra cu ce a afisat scriptul ──
+        function showEmailConsole(title, text, color) {
+            let dlg = document.getElementById('emailConsoleDialog');
+            if (!dlg) {
+                dlg = document.createElement('div');
+                dlg.id = 'emailConsoleDialog';
+                dlg.style.cssText = 'position:fixed;inset:0;z-index:100002;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55)';
+                dlg.innerHTML =
+                    '<div style="width:min(860px,calc(100% - 32px));max-height:85vh;display:flex;flex-direction:column;background:#1e1e1e;border:1px solid #444;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6)">' +
+                    '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #333">' +
+                    '<b class="ec-title" style="flex:1;color:#eee;font-size:17px"></b>' +
+                    '<button class="btn btn-ghost ec-close">Închide</button></div>' +
+                    '<pre class="ec-body" style="margin:0;padding:16px 18px;overflow:auto;white-space:pre-wrap;word-break:break-word;' +
+                    'font:15px/1.5 Consolas,\'Courier New\',monospace"></pre></div>';
+                document.body.appendChild(dlg);
+                const close = function () { if (!dlg.dataset.busy) dlg.style.display = 'none'; };
+                dlg.querySelector('.ec-close').onclick = close;
+                dlg.addEventListener('click', function (e) { if (e.target === dlg) close(); });
+            }
+            dlg.style.display = 'flex';
+            dlg.querySelector('.ec-title').textContent = title;
+            const body = dlg.querySelector('.ec-body');
+            body.style.color = color || '#38bdf8';
+            body.textContent = text;
+            return dlg;
+        }
+        async function sendLatestArticleEmail() {
+            const btn = document.getElementById('btnSendArticleEmail');
+            if (btn && btn.disabled) return;
+            const post = async function (extra) {
+                const body = new URLSearchParams(extra || {});
+                const res = await fetch('?action=sendArticleEmail', { method: 'POST', body: body });
+                return res.json();
+            };
+            let info;
+            try { info = await post({ check: '1' }); }
+            catch (e) { showErrorPopup('Nu pot contacta serverul: ' + e.message); return; }
+            if (!info.ok) { showErrorPopup(info.error || 'Eroare necunoscută.'); return; }
+            if (!info.link) {
+                showErrorPopup('Nu am găsit niciun articol la începutul listei din ro/index.html.\nNu trimit nimic.');
+                return;
+            }
+            if (!window.confirm('Trimit pe email ultimul articol din index?\n\n' +
+                (info.title ? info.title + '\n' : '') + info.link)) return;
+            if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+            const dlg = showEmailConsole('Trimite E-mail', 'Se trimite emailul în fundal...\n\n' + info.link, '#facc15');
+            dlg.dataset.busy = '1';
+            try {
+                const r = await post({});
+                delete dlg.dataset.busy;
+                if (!r.ok) {
+                    showEmailConsole('Trimite E-mail — eroare', r.error || 'Eroare necunoscută.', '#f87171');
+                    return;
+                }
+                let text = String(r.output || '').replace(/^\s+/, '').replace(/\s+$/, '');
+                if (r.errors && r.errors.trim()) text += '\n\n--- erori ---\n' + r.errors.trim();
+                if (r.timedOut) text += '\n\n✗ Scriptul a durat prea mult și a fost oprit.';
+                text += '\n>>>';
+                showEmailConsole(r.sent ? 'Email trimis ✓' : 'Emailul NU a fost confirmat ✗', text, r.sent ? '#38bdf8' : '#f87171');
+            } catch (e) {
+                delete dlg.dataset.busy;
+                showEmailConsole('Trimite E-mail — eroare', 'Eroare: ' + e.message, '#f87171');
+            } finally {
+                if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+            }
+        }
+
+        // „Continua la editor” fara niciun fisier deschis: pregateste o pagina goala editabila
+        // (altfel zona Design ramane un document alb in care nu se poate scrie/lipi).
+        var BLANK_EDITOR_PAGE = '<!DOCTYPE html>\n<html lang="ro">\n<head>\n<meta charset="utf-8">\n<title></title>\n</head>\n<body>\n<p class="text_obisnuit"><br></p>\n</body>\n</html>\n';
+        function continueToEditor() {
+            hideOverlay();
+            if (currentFile || tabs.some(function (t) { return t.type !== 'browser'; })) return;
+            if (!editor) return;
+            if (!editor.getValue().trim()) {
+                isSyncFromDesign = true;
+                editor.setValue(BLANK_EDITOR_PAGE);
+                isSyncFromDesign = false;
+                editor.getDoc().clearHistory();
+                isDirty = false;
+            }
+            setViewMode('design');
+            updatePreview();
         }
 
         function showOverlay() {
@@ -10606,6 +11167,49 @@ if (isset($_GET['action'])) {
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(function () { });
         }
+
+        // ── Avertisment: editorul (acest fisier) s-a schimbat pe disc → trebuie reincarcat ──
+        // Pagina isi tine minte versiunea (data modificarii fisierului) de la incarcare si
+        // intreaba serverul la 20 s si la revenirea in fereastra daca a aparut una mai noua.
+        (function () {
+            var loadedVersion = <?php echo json_encode((string) filemtime(__FILE__)); ?>;
+            var bannerShown = false;
+            function showUpdateBanner() {
+                if (bannerShown) return;
+                bannerShown = true;
+                var bar = document.createElement('div');
+                bar.id = 'editorUpdateBanner';
+                bar.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:100001;' +
+                    'background:#1f2937;border:2px solid #facc15;border-radius:8px;padding:10px 16px;' +
+                    'display:flex;align-items:center;gap:14px;color:#eee;font-size:16px;box-shadow:0 6px 24px rgba(0,0,0,.5)';
+                bar.innerHTML =
+                    '<span><i class="fas fa-sync-alt" style="color:#facc15"></i> ' +
+                    'Editorul a fost actualizat. Reîncarcă pagina ca să folosești versiunea nouă.</span>' +
+                    '<button class="btn btn-primary" id="editorUpdateReload">Reîncarcă acum</button>' +
+                    '<button class="btn btn-ghost" id="editorUpdateLater">Mai târziu</button>';
+                document.body.appendChild(bar);
+                document.getElementById('editorUpdateReload').onclick = function () { location.reload(); };
+                document.getElementById('editorUpdateLater').onclick = function () {
+                    bar.remove();
+                    // reapare peste 5 minute daca tot n-a fost reincarcat
+                    setTimeout(function () { bannerShown = false; checkVersion(); }, 5 * 60 * 1000);
+                };
+            }
+            function checkVersion() {
+                if (bannerShown) return;
+                fetch('?action=version', { cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (d && d.ok && String(d.v) !== String(loadedVersion)) showUpdateBanner();
+                    })
+                    .catch(function () { });
+            }
+            setInterval(checkVersion, 20000);
+            window.addEventListener('focus', checkVersion);
+            document.addEventListener('visibilitychange', function () {
+                if (document.visibilityState === 'visible') checkVersion();
+            });
+        })();
     </script>
 </body>
 

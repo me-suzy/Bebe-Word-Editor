@@ -1398,7 +1398,10 @@ if (isset($_GET['action'])) {
         #sbPinned,
         #sbRecent {
             max-height: 170px;
-            overflow-y: auto;
+            min-height: 0;
+            overflow-y: scroll;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
         }
 
         #sbPinned::-webkit-scrollbar,
@@ -1496,6 +1499,21 @@ if (isset($_GET['action'])) {
 
         .page p {
             margin: 0 0 .35em;
+        }
+
+        /* paragraf rupt între pagini (ca în Word): capul rămâne pe pagina curentă,
+           continuarea pe următoarea; la salvare se lipesc la loc într-un singur paragraf */
+        .page [data-pg-head] {
+            margin-bottom: 0 !important;
+        }
+
+        .page [data-pg-head="j"] {
+            text-align-last: justify;
+        }
+
+        .page [data-pg-cont] {
+            margin-top: 0 !important;
+            text-indent: 0 !important;
         }
 
         .page img {
@@ -1880,15 +1898,21 @@ if (isset($_GET['action'])) {
             flex-shrink: 0;
         }
 
-        /* liste derulabile: PIN-uri + minim 20 de fișiere recente la un click distanță */
+        /* liste derulabile: PIN-uri + maximum 15 de fișiere recente la un click distanță */
         #pinnedList {
             max-height: 160px;
-            overflow-y: auto;
+            min-height: 0;
+            overflow-y: scroll;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
         }
 
         #recentList {
             max-height: 270px;
-            overflow-y: auto;
+            min-height: 0;
+            overflow-y: scroll;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
         }
 
         #pinnedList::-webkit-scrollbar,
@@ -3139,7 +3163,7 @@ if (isset($_GET['action'])) {
             <div class="overlay-sub" id="confirmMsg">Documentul are modificări nesalvate.</div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
                 <button id="cfCancel" style="background:transparent;border:1px solid #3a3f4f;color:#cdd3df;border-radius:6px;padding:8px 16px;cursor:pointer">Anulează</button>
-                <button id="cfDiscard" style="background:#5a3030;border:1px solid #7a3a3a;color:#ffd7d7;border-radius:6px;padding:8px 16px;cursor:pointer">Nu salva</button>
+                <button id="cfDiscard" style="background:#5a3030;border:1px solid #7a3a3a;color:#ffd7d7;border-radius:6px;padding:8px 16px;cursor:pointer">Inchide fara salvare</button>
                 <button id="cfSave" style="background:#107c10;border:none;color:#fff;border-radius:6px;padding:8px 18px;cursor:pointer;font-weight:600">Salvează</button>
             </div>
         </div>
@@ -3297,6 +3321,9 @@ if (isset($_GET['action'])) {
         function pageLimitPx() {
             return (currentPageLayout.heightCm - currentPageLayout.bottomCm) * CM;
         }
+        // toleranță (px) la „încape pe pagină": rotunjirile sub-pixel nu mai trimit un rând întreg
+        // pe pagina următoare; depășirea de 1-2px cade oricum în marginea de jos
+        const PAGE_FIT_TOL = 2;
         function usablePagePx() {
             return Math.max(1, currentPageLayout.heightCm - currentPageLayout.topCm - currentPageLayout.bottomCm) * CM;
         }
@@ -3374,7 +3401,7 @@ if (isset($_GET['action'])) {
                 const r = document.createRange(); r.selectNode(last);
                 bottom = r.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top;
             }
-            return bottom > pageLimitPx();
+            return bottom > pageLimitPx() + PAGE_FIT_TOL;
         }
 
         function prependTo(parent, node) {
@@ -3398,7 +3425,7 @@ if (isset($_GET['action'])) {
             let bottom;
             if (last.nodeType === 1) bottom = last.offsetTop + last.offsetHeight;
             else { const r = document.createRange(); r.selectNode(last); bottom = r.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top; }
-            return bottom - pageLimitPx();
+            return bottom - pageLimitPx() - PAGE_FIT_TOL;
         }
         // Imparte un bloc prea inalt: muta coada in "remainder" in loturi proportionale
         // cu depasirea (putine reflow-uri, in loc de unul per cuvant).
@@ -3420,6 +3447,140 @@ if (isset($_GET['action'])) {
             return rem.childNodes.length ? rem : null;
         }
 
+        // ── Paragraf rupt între pagini (ca în Word) ──
+        // Capul primește data-pg-head ("j" dacă e justified → ultimul rând rămâne aliniat),
+        // continuarea data-pg-cont. Sunt marcaje doar de afișare: joinSplitBlocks le
+        // lipește la loc înainte de salvare/undo/repaginare.
+        const SPLIT_BLOCK_RE = /^(P|DIV|BLOCKQUOTE)$/;
+        function isSplittableBlock(n) {
+            return n && n.nodeType === 1 && SPLIT_BLOCK_RE.test(n.tagName)
+                && !n.querySelector('p,div,table,ul,ol,blockquote,pre,h1,h2,h3,h4,h5,h6,hr,figure');
+        }
+        function sameInlineShell(a, b) {
+            if (!a || !b || a.nodeType !== 1 || b.nodeType !== 1 || a.tagName !== b.tagName) return false;
+            if (!INLINE_FMT_TAGS.test(a.tagName) || a.attributes.length !== b.attributes.length) return false;
+            for (const at of a.attributes) if (b.getAttribute(at.name) !== at.value) return false;
+            return true;
+        }
+        // lipește conținutul lui `from` la finalul lui `into`; la joncțiune reunește
+        // învelișurile inline identice (span-ul tăiat în două redevine unul singur)
+        function appendMergingInline(into, from) {
+            while (from.firstChild) {
+                const c = from.firstChild, l = into.lastChild;
+                if (sameInlineShell(l, c)) { from.removeChild(c); appendMergingInline(l, c); }
+                else into.appendChild(c);
+            }
+            into.normalize();
+        }
+        function joinSplitBlocks(root) {
+            const conts = root.querySelectorAll('[data-pg-cont]');
+            conts.forEach(c => {
+                const prev = c.previousElementSibling
+                    || (c.parentNode && c.parentNode.classList && c.parentNode.classList.contains('page')
+                        && c.parentNode.previousElementSibling && c.parentNode.previousElementSibling.lastElementChild);
+                if (prev && prev.hasAttribute('data-pg-head') && prev.tagName === c.tagName) {
+                    appendMergingInline(prev, c);
+                    if (c.hasAttribute('data-pg-head')) prev.setAttribute('data-pg-head', c.getAttribute('data-pg-head'));
+                    else prev.removeAttribute('data-pg-head');
+                    c.remove();
+                } else c.removeAttribute('data-pg-cont');
+            });
+            root.querySelectorAll('[data-pg-head]').forEach(h => h.removeAttribute('data-pg-head'));
+            root.querySelectorAll('[data-pg-cont]').forEach(h => h.removeAttribute('data-pg-cont'));
+        }
+        // Rupe `block` (aflat în coala-probă) astfel încât capul să încapă în `avail` px.
+        // Tăietura se face la începutul unui rând. Întoarce { rem, remH } sau null.
+        function splitBlockForSpace(block, avail, probe) {
+            if (avail < 8) return null;
+            probe.appendChild(block);
+            const isWs = ch => /[\s﻿​]/.test(ch);
+            function mapText() {
+                const nodes = [], starts = [];
+                let str = '';
+                const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+                let n;
+                while ((n = w.nextNode())) { nodes.push(n); starts.push(str.length); str += n.nodeValue; }
+                const cands = [];
+                // fiecare literă e un posibil început de rând: browserul rupe și după cratimă
+                // („să-|și"), nu doar la spații
+                for (let i = 1; i < str.length; i++) if (!isWs(str[i])) cands.push(i);
+                return { nodes, starts, cands };
+            }
+            function posOf(map, i) {
+                let lo = 0, hi = map.nodes.length - 1;
+                while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (map.starts[mid] <= i) lo = mid; else hi = mid - 1; }
+                return { node: map.nodes[lo], off: i - map.starts[lo] };
+            }
+            function rectAt(map, i) {
+                const p = posOf(map, i);
+                const r = document.createRange();
+                r.setStart(p.node, p.off);
+                r.setEnd(p.node, Math.min(p.node.nodeValue.length, p.off + 1));
+                const rs = r.getClientRects();
+                return rs.length ? rs[0] : r.getBoundingClientRect();
+            }
+            let map = mapText();
+            if (!map.cands.length) return null;
+            let top0 = block.getBoundingClientRect().top;
+            // primul cuvânt care nu mai încape (bottom monoton pe cuvinte)
+            let lo = 0, hi = map.cands.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (rectAt(map, map.cands[mid]).bottom - top0 > avail + PAGE_FIT_TOL) hi = mid; else lo = mid + 1;
+            }
+            let k = lo;
+            if (k >= map.cands.length) {
+                // măsurat real, tot blocul încape (calculul aproximativ din Faza 2 greșea la limită)
+                if (block.offsetHeight <= avail + PAGE_FIT_TOL) return { fits: true };
+                // literele ultimului rând încap, dar rândul întreg (cu interlinia) nu → taie înaintea lui
+                k = map.cands.length - 1;
+            }
+            const justify = getComputedStyle(block).textAlign === 'justify';
+            for (let tries = 0; tries < 8; tries++) {
+                if (k <= 0) return null;   // nici primul rând nu încape
+                // aliniază tăietura la începutul rândului literei k: o literă începe un rând nou
+                // când stă sub litera dinainte (top ≥ bottom-ul ei), indiferent de mărimea fontului
+                {
+                    // căutare binară: prima literă care NU stă pe un rând de deasupra lui k
+                    const lineTop = rectAt(map, map.cands[k]).top;
+                    let a = 0, b = k;
+                    while (a < b) {
+                        const mid = (a + b) >> 1;
+                        if (rectAt(map, map.cands[mid]).bottom > lineTop + 1) b = mid; else a = mid + 1;
+                    }
+                    k = a;
+                }
+                if (k <= 0) return null;
+                const backup = Array.from(block.childNodes).map(c => c.cloneNode(true));
+                const p = posOf(map, map.cands[k]);
+                const r = document.createRange();
+                r.setStart(p.node, p.off);
+                r.setEnd(block, block.childNodes.length);
+                const frag = r.extractContents();
+                const rem = block.cloneNode(false);
+                rem.removeAttribute('id');
+                rem.removeAttribute('data-pg-head');
+                rem.setAttribute('data-pg-cont', '1');
+                rem.appendChild(frag);
+                block.setAttribute('data-pg-head', justify ? 'j' : '1');
+                probe.appendChild(rem);
+                if (block.offsetHeight <= avail + PAGE_FIT_TOL) {
+                    const remH = rem.offsetHeight;
+                    probe.removeChild(rem);
+                    return { rem, remH };
+                }
+                // capul tot depășește (line-height mare etc.) → refă blocul, încearcă un rând mai sus
+                rem.remove();
+                block.removeAttribute('data-pg-head');
+                while (block.firstChild) block.removeChild(block.firstChild);
+                backup.forEach(c => block.appendChild(c));
+                map = mapText();
+                top0 = block.getBoundingClientRect().top;
+                k = Math.min(k, map.cands.length) - 1;
+            }
+            return null;
+        }
+
         // Paginare RAPIDA: masoara toate blocurile o singura data intr-o coala-proba
         // (1 reflow), apoi imparte pe pagini matematic — fara reflow per bloc.
         // 225 pagini: ~10s (vechi) → sub 0.3s (nou).
@@ -3428,6 +3589,7 @@ if (isset($_GET['action'])) {
             page.innerHTML = '';
             const src = document.createElement('div');
             src.innerHTML = (html && html.trim()) ? html : '';
+            if (src.querySelector('[data-pg-cont],[data-pg-head]')) joinSplitBlocks(src);
             const blocks = [];
             let pendingP = null;   // adună nodurile text/inline consecutive într-un singur <p>
             src.childNodes.forEach(n => {
@@ -3451,20 +3613,53 @@ if (isset($_GET['action'])) {
             probe.style.cssText = 'height:auto;min-height:0;overflow:visible;visibility:hidden;position:absolute;left:-99999px;top:0';
             page.appendChild(probe);
             blocks.forEach(b => probe.appendChild(b));
-            const measured = blocks.map(b => ({ node: b, top: b.offsetTop, h: b.offsetHeight }));  // 1 reflow
+            // mt = margin-top: la începutul unei coli nu se mai contopește cu blocul anterior
+            // (ex. <h2>), deci trebuie numărat în înălțimea colii
+            const measured = blocks.map(b => ({ node: b, top: b.offsetTop, h: b.offsetHeight, mt: parseFloat(getComputedStyle(b).marginTop) || 0 }));  // 1 reflow
             page.removeChild(probe);
 
             // FAZA 2 — imparte pe coli dupa pozitiile masurate (fara reflow)
-            let sheet = makeSheet(); page.appendChild(sheet);
-            let pageStart = measured.length ? measured[0].top : 0;
+            // colile se construiesc în afara documentului (fragment) → măsurătorile din
+            // coala-probă nu mai recalculează layout-ul tuturor paginilor deja făcute
+            const out = document.createDocumentFragment();
+            let sheet = makeSheet(); out.appendChild(sheet);
+            let pageStart = measured.length ? measured[0].top - measured[0].mt : 0;
             const usable = usablePagePx();
+            // coală-probă vie pentru ruperea paragrafelor la capăt de pagină (ca în Word)
+            let splitProbe = null;
             for (const m of measured) {
-                if (sheet.childNodes.length > 0 && (m.top - pageStart) + m.h > usable) {
-                    sheet = makeSheet(); page.appendChild(sheet);
-                    pageStart = m.top;
+                let node = m.node, top = m.top, h = m.h;
+                for (let guard = 0; guard < 500; guard++) {
+                    const y = top - pageStart;
+                    if (y + h <= usable + PAGE_FIT_TOL) { sheet.appendChild(node); break; }
+                    if (isSplittableBlock(node)) {
+                        if (!splitProbe) {
+                            splitProbe = makeSheet();
+                            splitProbe.style.cssText = 'height:auto;min-height:0;overflow:visible;visibility:hidden;position:absolute;left:-99999px;top:0';
+                            page.appendChild(splitProbe);
+                        }
+                        const res = splitBlockForSpace(node, usable - y, splitProbe);
+                        if (res && res.fits) { sheet.appendChild(node); break; }
+                        if (res) {
+                            sheet.appendChild(node);
+                            sheet = makeSheet(); out.appendChild(sheet);
+                            // restul paragrafului începe coala nouă; blocurile de după îl urmează
+                            pageStart = (m.top + m.h) - res.remH;
+                            node = res.rem; top = pageStart; h = res.remH;
+                            continue;
+                        }
+                    }
+                    if (sheet.childNodes.length > 0) {
+                        sheet = makeSheet(); out.appendChild(sheet);
+                        pageStart = top - (node === m.node ? m.mt : 0);
+                        continue;
+                    }
+                    sheet.appendChild(node);   // coală goală și blocul nu se poate rupe → Faza 3
+                    break;
                 }
-                sheet.appendChild(m.node);
             }
+            if (splitProbe) splitProbe.remove();
+            page.appendChild(out);
 
             // FAZA 3 - corectie finala: muta blocurile care depasesc pagina urmatoare.
             // Pentru un paragraf mai inalt decat pagina, sparge la nivel de cuvant.
@@ -3479,7 +3674,11 @@ if (isset($_GET['action'])) {
                             if (rem) { ns.appendChild(rem); s = ns; continue; }
                             else { s = ns; continue; }
                         } else {
-                            const last = s.lastChild; const ns = makeSheet(); s.after(ns);
+                            // blocul care depășește trece în FAȚA colii următoare (nu pe o coală
+                            // nouă, care ar rămâne aproape goală); dacă și aceea depășește, se reia
+                            const last = s.lastChild;
+                            let ns = s.nextElementSibling;
+                            if (!ns || !ns.classList.contains('page')) { ns = makeSheet(); s.after(ns); }
                             ns.insertBefore(last, ns.firstChild); s = ns; continue;
                         }
                     }
@@ -3495,6 +3694,13 @@ if (isset($_GET['action'])) {
         function getDocHtml(options = {}) {
             const sheets = page.querySelectorAll('.page');
             let html = sheets.length ? Array.from(sheets).map(s => s.innerHTML).join('\n') : page.innerHTML;
+            // paragrafele rupte între pagini redevin un singur paragraf (marcajele sunt doar de afișare)
+            if (html.indexOf('data-pg-') !== -1) {
+                const tmp = document.createElement('div');
+                tmp.innerHTML = html;
+                joinSplitBlocks(tmp);
+                html = tmp.innerHTML;
+            }
             // scoate sublinierile DEX (sunt doar marcaje vizuale, nu fac parte din document)
             if (html.indexOf('dex-bad') !== -1) html = html.replace(/<span class="dex-bad">([\s\S]*?)<\/span>/g, '$1');
             if (!options.keepCaretMarker && html.indexOf('data-page-caret-marker') !== -1) {
@@ -4264,13 +4470,15 @@ if (isset($_GET['action'])) {
         // Drag&drop docx: caută calea reală pe disc (după nume+dimensiune) → permite overwrite tăcut
         async function resolveDroppedPath(file, ext) {
             if (ext !== 'docx') return;
+            const targetTab = curTab();
             try {
                 const j = await (await fetch(api('action=findpath&name=' + encodeURIComponent(file.name) + '&size=' + file.size))).json();
                 if (j.ok && j.matches && j.matches.length === 1) {
                     const real = j.matches[0];
-                    const t = curTab();
-                    if (t) { t.path = real; t.file = real; t.savedHtml = getDocHtml(); }
-                    currentFile = real; currentExt = 'docx';
+                    // Resolve the file that initiated the lookup, even if the user switched tabs.
+                    if (!targetTab || !tabs.includes(targetTab)) return;
+                    targetTab.path = real; targetTab.file = real;
+                    if (activeId === targetTab.id) { currentFile = real; currentExt = 'docx'; }
                     // persistă în istoricul de durată (localStorage) și scoate intrarea de sesiune (drag&drop)
                     sessionDropped = sessionDropped.filter(e => e.name !== file.name);
                     recordRecent({ path: real, name: real.split(/[\\/]/).pop(), ext: 'docx' });
@@ -4466,13 +4674,19 @@ if (isset($_GET['action'])) {
         }
         function snapshot() { return { html: getDocHtml(), caret: caretOffset(), scroll: canvasEl.scrollTop }; }
         function restoreSnap(s) {
+            clearTimeout(autoRepaginateTimer);
+            clearTimeout(typingTimer);
+            editorSavedRange = null;
             setDocHtml(s.html);
             page.focus();
             if (!setCaretByOffset(s.caret)) canvasEl.scrollTop = s.scroll || 0;   // fallback: scroll
             else if (s.caret == null) canvasEl.scrollTop = s.scroll || 0;
+            saveEditorSelection();
         }
+        const untabbedHistory = { undo: [], redo: [] };
+        let untabbedSavedHtml = null;
         function pushState() {                 // snapshot pe stiva tab-ului activ
-            const t = curTab(); if (!t) return;
+            const t = curTab() || untabbedHistory;
             (t.undo || (t.undo = [])).push(snapshot());
             if (t.undo.length > UNDO_MAX) t.undo.shift();
             if (t.redo) t.redo.length = 0;     // golire in-place (păstrează referința)
@@ -4490,18 +4704,24 @@ if (isset($_GET['action'])) {
             refreshActive(); updateWordCount();
         }
         function doUndo() {
-            const t = curTab();
+            const t = curTab() || untabbedHistory;
             if (!t || !t.undo || !t.undo.length) { toast('Nimic de anulat'); return; }
             (t.redo || (t.redo = [])).push(snapshot());
             restoreSnap(t.undo.pop());
             setInfo('Undo'); typingActive = false;
+            appCloseApproved = false;
+            syncActiveTab(); refreshActive(); updateWordCount();
+            scheduleAutoBackup();
         }
         function doRedo() {
-            const t = curTab();
+            const t = curTab() || untabbedHistory;
             if (!t || !t.redo || !t.redo.length) { toast('Nimic de refăcut'); return; }
             t.undo.push(snapshot());
             restoreSnap(t.redo.pop());
             setInfo('Redo'); typingActive = false;
+            appCloseApproved = false;
+            syncActiveTab(); refreshActive(); updateWordCount();
+            scheduleAutoBackup();
         }
         // tastarea: un snapshot per „rafală" (grupează tastele rapide, granularitate ca în editoare)
         function noteTypingSnapshot() {
@@ -4509,7 +4729,14 @@ if (isset($_GET['action'])) {
             if (!typingActive) { pushState(); typingActive = true; }
             clearTimeout(typingTimer); typingTimer = setTimeout(() => { typingActive = false; }, 600);
         }
-        page.addEventListener('beforeinput', noteTypingSnapshot);
+        page.addEventListener('beforeinput', e => {
+            if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') {
+                e.preventDefault();
+                if (e.inputType === 'historyUndo') doUndo(); else doRedo();
+                return;
+            }
+            noteTypingSnapshot();
+        });
 
         // ── Editing commands ──
         function focusPage() { focusPageNoJump(); }
@@ -5327,10 +5554,7 @@ if (isset($_GET['action'])) {
             }
         }
 
-        // ── Paste: text curat, cu formatarea paragrafului-destinație ──
-        // Ca în Word la lipirea de text simplu: paragraful în care lipim își păstrează
-        // alinierea și fontul, chiar dacă îi înlocuim tot conținutul. Fără asta,
-        // paragraful lipit rămânea nestilat (fără justify) peste unul formatat.
+        // ── Paste: păstrează formatarea din AI / Markdown și stilul destinației ──
         function destinationFormat() {
             const blk = getBlock();
             if (!blk) return { align: '', css: '' };
@@ -5344,21 +5568,93 @@ if (isset($_GET['action'])) {
             }
             return { align, css };
         }
-        page.addEventListener('paste', (e) => {
-            e.preventDefault();
-            const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-            if (!text) return;
-            if (!saveEditorSelection() && !restoreEditorSelection()) return;
+        function markdownInlineToHtml(text) {
+            let html = escapeHtml(String(text || ''));
+            const codeParts = [];
+            html = html.replace(/`([^`\n]+)`/g, (all, code) => {
+                const token = '\uE000' + codeParts.length + '\uE001';
+                codeParts.push('<code>' + code + '</code>');
+                return token;
+            });
+            html = html.replace(/(\*\*\*|___)(?=\S)([^\n]*?\S)\1/g, '<strong><em>$2</em></strong>');
+            html = html.replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, '<strong>$2</strong>');
+            html = html.replace(/~~(?=\S)([^\n]*?\S)~~/g, '<s>$1</s>');
+            html = html.replace(/(^|[^*])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?!\*)/g, '$1<em>$2</em>');
+            html = html.replace(/(^|[^\w_])_([^\s_](?:[^_\n]*?[^\s_])?)_(?![\w_])/g, '$1<em>$2</em>');
+            return html.replace(/\uE000(\d+)\uE001/g, (all, index) => codeParts[Number(index)] || all);
+        }
+        function markdownTextToHtml(text) {
+            return String(text || '').split(/\r?\n\r?\n/).map(par =>
+                '<p>' + markdownInlineToHtml(par).replace(/\r?\n/g, '<br>') + '</p>'
+            ).join('');
+        }
+        function hasMarkdownFormatting(text) {
+            const value = String(text || '');
+            return /(\*\*\*|___)(?=\S)[\s\S]*?\1|(\*\*|__)(?=\S)[\s\S]*?\2|~~(?=\S)[\s\S]*?~~|(^|[^*])\*[^\s*][^*\n]*?\*(?!\*)/m.test(value);
+        }
+        function safeClipboardHtml(rawHtml) {
+            if (!rawHtml) return '';
+            const source = new DOMParser().parseFromString(rawHtml, 'text/html');
+            const tags = {
+                B: 'strong', STRONG: 'strong', I: 'em', EM: 'em', U: 'u',
+                S: 's', STRIKE: 's', DEL: 's', CODE: 'code', BR: 'br',
+                P: 'p', DIV: 'p', LI: 'li', UL: 'ul', OL: 'ol',
+                BLOCKQUOTE: 'blockquote', PRE: 'pre'
+            };
+            function copySafe(node) {
+                if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.nodeValue || '');
+                if (node.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
+                const safeTag = tags[node.tagName];
+                const output = safeTag ? document.createElement(safeTag) : document.createDocumentFragment();
+                [...node.childNodes].forEach(child => output.appendChild(copySafe(child)));
+                return output;
+            }
+            const holder = document.createElement('div');
+            [...source.body.childNodes].forEach(child => holder.appendChild(copySafe(child)));
+            const textNodes = [];
+            const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+            let textNode;
+            while ((textNode = walker.nextNode())) textNodes.push(textNode);
+            textNodes.forEach(node => {
+                if (node.parentElement && node.parentElement.closest('code, pre')) return;
+                const converted = markdownInlineToHtml(node.nodeValue || '');
+                if (!/<(?:strong|em|s|code)>/.test(converted)) return;
+                const fragmentHolder = document.createElement('span');
+                fragmentHolder.innerHTML = converted;
+                const fragment = document.createDocumentFragment();
+                while (fragmentHolder.firstChild) fragment.appendChild(fragmentHolder.firstChild);
+                node.replaceWith(fragment);
+            });
+            return holder.innerHTML;
+        }
+        function applyDestinationFormatToPastedHtml(html, fmt) {
+            const holder = document.createElement('div');
+            holder.innerHTML = html || '<p><br></p>';
+            const nonBlockContent = [...holder.childNodes].some(n =>
+                n.nodeType === Node.TEXT_NODE ? n.nodeValue.trim() : !/^(P|LI|UL|OL|BLOCKQUOTE|PRE)$/i.test(n.tagName)
+            );
+            if (nonBlockContent) {
+                const paragraph = document.createElement('p');
+                while (holder.firstChild) paragraph.appendChild(holder.firstChild);
+                holder.appendChild(paragraph);
+            }
+            holder.querySelectorAll('p, li, blockquote, pre').forEach(block => {
+                if (fmt.align && fmt.align !== 'left') block.style.textAlign = fmt.align;
+                if (!fmt.css || !block.childNodes.length) return;
+                const style = document.createElement('span');
+                style.style.cssText = fmt.css;
+                while (block.firstChild) style.appendChild(block.firstChild);
+                block.appendChild(style);
+            });
+            return holder.innerHTML;
+        }
+        function insertClipboardContent(text, richHtml = '') {
+            if (!text && !richHtml) return false;
+            if (!saveEditorSelection() && !restoreEditorSelection()) return false;
             const fmt = destinationFormat();
-            // font-family poate conține ghilimele („Times New Roman") → obligatoriu escapate,
-            // altfel atributul style="…" se închide devreme și toată formatarea se pierde
-            const open = '<p' + (fmt.align && fmt.align !== 'left' ? ' style="text-align:' + fmt.align + '"' : '') + '>';
-            const cssAttr = fmt.css.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-            const html = text.split(/\r?\n\r?\n/).map(par => {
-                let body = escapeHtml(par).replace(/\r?\n/g, '<br>');
-                if (fmt.css) body = '<span style="' + cssAttr + '">' + body + '</span>';
-                return open + body + '</p>';
-            }).join('');
+            const safeHtml = safeClipboardHtml(richHtml);
+            const rawHtml = hasMarkdownFormatting(text) ? markdownTextToHtml(text) : (safeHtml || markdownTextToHtml(text));
+            const html = applyDestinationFormatToPastedHtml(rawHtml, fmt);
             // insertHTML NU declanșează 'beforeinput' în Chrome, deci snapshot-ul de undo
             // trebuie luat aici explicit — altfel Ctrl+Z după lipire zicea „Nimic de anulat".
             recordUndo(); suppressSnap = true;
@@ -5370,17 +5666,37 @@ if (isset($_GET['action'])) {
             // (restul — word count, autosave, repaginare — vine din handlerul 'input')
             saveEditorSelection();
             scheduleEditorRepaginateIfNeeded(120);
-        });
+            return true;
+        }
+        function handleEditorPaste(e) {
+            if (!page.contains(e.target)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            const data = e.clipboardData || window.clipboardData;
+            const text = data && data.getData ? data.getData('text/plain') : '';
+            const html = data && data.getData ? data.getData('text/html') : '';
+            insertClipboardContent(text, html);
+        }
+        document.addEventListener('paste', handleEditorPaste, true);
         function doPaste() {
-            navigator.clipboard.readText().then(t => {
-                if (!t) return;
+            const paste = (text, richHtml = '') => {
                 focusPageNoJump();
                 restoreEditorSelection();
-                // runCmd → recordUndo + focus + selecție restaurată (deci Ctrl+Z funcționează)
-                runCmd(() => document.execCommand('insertText', false, t));
-                saveEditorSelection();
-                scheduleEditorRepaginateIfNeeded(120);
-            }).catch(() => toast('Folosește Ctrl+V'));
+                insertClipboardContent(text, richHtml);
+            };
+            if (navigator.clipboard.read) {
+                navigator.clipboard.read().then(items => Promise.all(items.map(async item => {
+                    const plain = item.types.includes('text/plain') ? await (await item.getType('text/plain')).text() : '';
+                    const html = item.types.includes('text/html') ? await (await item.getType('text/html')).text() : '';
+                    return { plain, html };
+                }))).then(parts => {
+                    const html = parts.map(p => p.html).find(Boolean) || '';
+                    const text = parts.map(p => p.plain).find(Boolean) || '';
+                    paste(text, html);
+                }).catch(() => navigator.clipboard.readText().then(t => paste(t)).catch(() => toast('Folosește Ctrl+V')));
+            } else {
+                navigator.clipboard.readText().then(t => paste(t)).catch(() => toast('Folosește Ctrl+V'));
+            }
         }
 
         // ── Enter: paragraful nou moștenește formatarea celui curent (ca în Word) ──
@@ -5476,7 +5792,9 @@ if (isset($_GET['action'])) {
             const frag = tail.extractContents();
 
             const nb = document.createElement(block.tagName);
-            for (const at of block.attributes) if (at.name !== 'id') nb.setAttribute(at.name, at.value);
+            for (const at of block.attributes) if (at.name !== 'id' && at.name.indexOf('data-pg-') !== 0) nb.setAttribute(at.name, at.value);
+            // Enter în capul unui paragraf rupt între pagini: coada (nb) e cea care continuă pe pagina următoare
+            if (block.hasAttribute('data-pg-head')) { nb.setAttribute('data-pg-head', block.getAttribute('data-pg-head')); block.removeAttribute('data-pg-head'); }
             if (blockHasContent(frag)) nb.appendChild(frag);
             else fillEmptyBlock(nb, chain);
             if (!blockHasContent(block)) fillEmptyBlock(block, chain);   // Enter la începutul paragrafului
@@ -5645,6 +5963,7 @@ if (isset($_GET['action'])) {
                     document.getElementById('fileName').textContent = j.file;
                     const t = curTab();
                     if (t) { t.savedHtml = inner; t.html = inner; t.path = j.file; t.ext = 'docx'; t.file = j.file; }
+                    else { untabbedSavedHtml = inner; }
                     renderTabs();
                     updateBookmarkUi();
                 }
@@ -6395,7 +6714,9 @@ if (isset($_GET['action'])) {
         function isTabDirty(t) {
             if (!t) return false;
             const cur = (t.id === activeId) ? getDocHtml() : t.html;
-            return cur !== t.savedHtml;
+            // ignoră spațiile dintre taguri (granițele de pagină se mută la repaginare)
+            const norm = h => String(h || '').replace(/>\s+</g, '><');
+            return norm(cur) !== norm(t.savedHtml);
         }
         function syncActiveTab() {
             const cur = tabs.find(t => t.id === activeId);
@@ -6407,7 +6728,13 @@ if (isset($_GET['action'])) {
             return compact === '' || compact === '<p><br></p>' || compact === '<br>';
         }
         function hasUntabbedDirtyDoc() {
-            return !activeId && isEmptyDocHtml(getDocHtml()) === false;
+            if (activeId) return false;
+            const html = getDocHtml();
+            if (currentFile && untabbedSavedHtml !== null) {
+                const norm = h => String(h || '').replace(/>\s+</g, '><');
+                return norm(html) !== norm(untabbedSavedHtml);
+            }
+            return !isEmptyDocHtml(html);
         }
         function hasUnsavedChanges() {
             syncActiveTab();
@@ -6519,6 +6846,7 @@ if (isset($_GET['action'])) {
             updateBookmarkUi();
         }
         async function autoBackupNow(force = false) {
+            if (appCloseApproved) return;
             if (autoBackupBusy) return;
             const entries = autoBackupEntries()
                 .map(e => ({ ...e, hash: autoBackupHash(e.html) }))
@@ -6606,11 +6934,18 @@ if (isset($_GET['action'])) {
             });
             return best;
         }
+        // Markerul nou se pune la cursor DOAR daca cursorul e pe ecran. Altfel (ex. ai dat click in
+        // cuprins si apoi ai derulat cu rotita), cursorul ramas in urma ar trimite markerul la cuprins —
+        // asa ca folosim paragraful din mijlocul ecranului, adica locul unde citesti.
         function currentBookmarkBlock() {
             const sel = window.getSelection();
             if (sel.rangeCount && page.contains(sel.getRangeAt(0).startContainer)) {
                 const blk = blockOf(sel.getRangeAt(0).startContainer);
-                if (blk) return blk;
+                if (blk) {
+                    const cr = canvasEl.getBoundingClientRect();
+                    const br = blk.getBoundingClientRect();
+                    if (br.bottom > cr.top && br.top < cr.bottom) return blk;
+                }
             }
             return blockNearViewportCenter();
         }
@@ -6668,12 +7003,24 @@ if (isset($_GET['action'])) {
             if (Number.isFinite(idx) && blocks[idx]) {
                 if (!sample || bookmarkTextSample(blocks[idx]) === sample || bookmarkTextSample(blocks[idx]).indexOf(sample.slice(0, 80)) === 0) return blocks[idx];
             }
+            // Numarul paragrafului s-a decalat (ai adaugat/sters randuri): cautam textul, dar alegem
+            // aparitia CEA MAI APROPIATA de vechea pozitie, nu prima din document — altfel un titlu
+            // de capitol sau o fraza care apare si in cuprins ar trimite markerul la inceputul cartii.
             if (sample) {
-                const exact = blocks.find(b => bookmarkTextSample(b) === sample);
+                const nearest = function (test) {
+                    let best = null, bestDist = Infinity;
+                    for (let i = 0; i < blocks.length; i++) {
+                        if (!test(bookmarkTextSample(blocks[i]))) continue;
+                        const dist = Number.isFinite(idx) ? Math.abs(i - idx) : i;
+                        if (dist < bestDist) { best = blocks[i]; bestDist = dist; }
+                    }
+                    return best;
+                };
+                const exact = nearest(t => t === sample);
                 if (exact) return exact;
                 const head = sample.slice(0, 80);
                 if (head) {
-                    const partial = blocks.find(b => bookmarkTextSample(b).indexOf(head) !== -1);
+                    const partial = nearest(t => t.indexOf(head) === 0) || nearest(t => t.indexOf(head) !== -1);
                     if (partial) return partial;
                 }
             }
@@ -6843,9 +7190,20 @@ if (isset($_GET['action'])) {
             document.querySelectorAll('.bookmark-marker-dynamic').forEach(m => m.remove());
             if (marker) marker.classList.remove('show');
             if (!has || !bookmarkStoreLoaded) return;
+            const allBlocks = bookmarkBlocks();
+            let healed = false;
             bookmarks.forEach((bookmark, idx) => {
                 const block = findBookmarkBlock(bookmark);
                 if (!block) return;
+                // Fraza gasita (exact acelasi text) la alt numar de paragraf → memoram noua pozitie,
+                // ca decalajele sa nu se adune de la o sesiune la alta.
+                const realIdx = allBlocks.indexOf(block);
+                if (realIdx >= 0 && realIdx !== bookmark.blockIndex && bookmark.sample &&
+                    bookmarkTextSample(block) === String(bookmark.sample).replace(/\s+/g, ' ').trim()) {
+                    bookmark.blockIndex = realIdx;
+                    bookmark.page = bookmarkPageNumber(block);
+                    healed = true;
+                }
                 const m = document.createElement('div');
                 m.className = 'bookmark-marker bookmark-marker-dynamic show';
                 m.setAttribute('contenteditable', 'false');
@@ -6856,6 +7214,10 @@ if (isset($_GET['action'])) {
                 canvasEl.appendChild(m);
                 positionBookmarkMarker(block, m, idx, bookmarks.length);
             });
+            if (healed) {
+                saveActiveBookmarks(bookmarks);
+                saveBookmarksFileSoon();
+            }
         }
         window.addEventListener('resize', () => updateBookmarkUi());
 
@@ -6900,7 +7262,7 @@ if (isset($_GET['action'])) {
             if (id === activeId) tab.html = getDocHtml();
             // modificari nesalvate → intreaba
             if (isTabDirty(tab)) {
-                const choice = await confirmSave(tab.file);
+                const choice = await confirmSave(tab.file, isTabDirty(tab));
                 if (choice === 'cancel') return;            // anuleaza inchiderea
                 if (choice === 'save') {
                     if (activeId !== tab.id) { activateTab(tab.id); tab.html = getDocHtml(); }
@@ -6915,7 +7277,7 @@ if (isset($_GET['action'])) {
             if (activeId === id) {
                 if (tabs.length) { activeId = null; activateTab(tabs[Math.max(0, realIdx - 1)].id); }
                 else {
-                    activeId = null; currentFile = null; currentExt = null; applyPageLayout(DEFAULT_PAGE_LAYOUT); setDocHtml('');
+                    activeId = null; currentFile = null; currentExt = null; untabbedHistory.undo.length = untabbedHistory.redo.length = 0; applyPageLayout(DEFAULT_PAGE_LAYOUT); setDocHtml('');
                     document.getElementById('stMode').textContent = '—'; renderTabs(); showOverlay();
                 }
             } else { renderTabs(); updateBookmarkUi(); }
@@ -6929,6 +7291,7 @@ if (isset($_GET['action'])) {
                 if (!ok) return;
             }
             currentFile = null; currentExt = null;
+            untabbedHistory.undo.length = untabbedHistory.redo.length = 0;
             applyPageLayout(DEFAULT_PAGE_LAYOUT);
             setDocHtml('');
             document.getElementById('stMode').textContent = '—';
@@ -6940,12 +7303,10 @@ if (isset($_GET['action'])) {
 
             for (const item of [...tabs]) {
                 const tab = tabs.find(t => t.id === item.id);
-                if (!tab) continue;
+                if (!tab || !isTabDirty(tab)) continue;
                 if (tab.id !== activeId) activateTab(tab.id);
                 tab.html = getDocHtml();
-                if (!isTabDirty(tab)) continue;
-
-                const choice = await confirmSave(tab.file || tab.path || 'document nou.docx');
+                const choice = await confirmSave(tab.file || tab.path || 'document nou.docx', isTabDirty(tab));
                 if (choice === 'cancel') return;
                 if (choice === 'save') {
                     const ok = await saveDocx();
@@ -6962,7 +7323,8 @@ if (isset($_GET['action'])) {
                 }
             }
 
-            await autoBackupNow(true);
+            // An explicit discard must not be followed by an automatic disk save.
+            clearTimeout(autoBackupTimer);
             appCloseApproved = true;
             setInfo('Iesire confirmata');
             window.close();
@@ -6971,12 +7333,13 @@ if (isset($_GET['action'])) {
 
         // ── Modal confirmare salvare → 'save' | 'discard' | 'cancel' ──
         let cancelActiveSaveConfirm = null;
-        function confirmSave(fileName) {
+        function confirmSave(fileName, dirty = true) {
             return new Promise(resolve => {
                 if (cancelActiveSaveConfirm) cancelActiveSaveConfirm();
                 const ov = document.getElementById('confirmOverlay');
                 document.getElementById('confirmMsg').textContent =
-                    'Documentul „' + ((fileName || '').split(/[\\/]/).pop() || 'fără nume') + '” are modificări nesalvate.';
+                    'Document: ' + ((fileName || '').split(/[\\/]/).pop() || 'fara nume') +
+                    (dirty ? '. Vrei sa salvezi modificarile inainte de inchidere?' : '. Documentul este salvat. Vrei sa-l salvezi din nou inainte de inchidere?');
                 ov.classList.add('open');
                 const sv = document.getElementById('cfSave'), ds = document.getElementById('cfDiscard'), cx = document.getElementById('cfCancel');
                 function done(val) {
@@ -7069,15 +7432,16 @@ if (isset($_GET['action'])) {
         // (și în sidebar) — nu mai trebuie căutate prin foldere.
         // Se pot fixa doar fișierele cu cale pe disc; cele venite prin drag&drop nu au
         // cale, deci n-ar putea fi redeschise după repornirea aplicației.
+        const MAX_PINNED = 15;
         const PINNED_KEY = 'wordEditorPinned';   // [{path,name,ext,ts}]
-        function getPinnedStore() { try { return JSON.parse(localStorage.getItem(PINNED_KEY)) || []; } catch (e) { return []; } }
-        function setPinnedStore(list) { try { localStorage.setItem(PINNED_KEY, JSON.stringify(list)); } catch (e) { } }
+        function getPinnedStore() { try { const list = JSON.parse(localStorage.getItem(PINNED_KEY)); return Array.isArray(list) ? list.filter(e => e && e.path).slice(0, MAX_PINNED) : []; } catch (e) { return []; } }
+        function setPinnedStore(list) { try { localStorage.setItem(PINNED_KEY, JSON.stringify(list.slice(0, MAX_PINNED))); } catch (e) { } }
         function pinKey(path) { return (path || '').replace(/\\/g, '/').toLowerCase(); }
         function isPinned(path) { const k = pinKey(path); return !!k && getPinnedStore().some(e => pinKey(e.path) === k); }
         // fișierul din tab-ul activ (sau cel deschis de pe disc)
         function currentPinEntry() {
             const t = curTab();
-            const path = (t && t.path) || currentFile;
+            const path = t ? t.path : currentFile;
             if (!path) return null;
             const name = String((t && t.file) || path).split(/[\\/]/).pop();
             const ext = ((t && t.ext) || path.split('.').pop() || '').toLowerCase();
@@ -7154,18 +7518,18 @@ if (isset($_GET['action'])) {
             });
         }
 
-        // ── Istoric fișiere (ultimele 25, ordonate după data deschiderii/închiderii) ──
+        // ── Istoric fișiere (ultimele 15, ordonate după data deschiderii/închiderii) ──
         //  • fișiere cu cale (sidebar/cale/recente) → persistă în localStorage (reopenabile oricând)
         //  • fișiere drag&drop (fără cale pe disc) → cache de sesiune cu HTML-ul (reopenabile cât e deschisă aplicația)
         const RECENT_KEY = 'wordEditorRecent';   // [{path,name,ext,ts}]
-        const MAX_RECENT = 25;                   // listele au scroll → cel puțin 20 la îndemână
+        const MAX_RECENT = 15;
         let sessionDropped = [];                 // [{name,ext,isPdf,html,ts}]
 
-        function getRecentStore() { try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch (e) { return []; } }
+        function getRecentStore() { try { const list = JSON.parse(localStorage.getItem(RECENT_KEY)); return Array.isArray(list) ? list.filter(e => e && e.path).slice(0, MAX_RECENT) : []; } catch (e) { return []; } }
         function recordRecent(entry) {
             entry.ts = Date.now();
             if (entry.path) {
-                let r = getRecentStore().filter(e => e.path !== entry.path);
+                let r = getRecentStore().filter(e => pinKey(e.path) !== pinKey(entry.path));
                 r.unshift({ path: entry.path, name: entry.name, ext: entry.ext, ts: entry.ts });
                 if (r.length > MAX_RECENT) r = r.slice(0, MAX_RECENT);
                 localStorage.setItem(RECENT_KEY, JSON.stringify(r));
@@ -7174,6 +7538,11 @@ if (isset($_GET['action'])) {
                 sessionDropped.unshift({ name: entry.name, ext: entry.ext, isPdf: entry.isPdf, html: entry.html, ts: entry.ts });
                 if (sessionDropped.length > MAX_RECENT) sessionDropped = sessionDropped.slice(0, MAX_RECENT);
             }
+            // Keep one combined 15-item history, including session-only dropped files.
+            const retained = new Set(allRecent().map(e => e.path ? pinKey(e.path) : 'dropped:' + e.name));
+            const persistent = getRecentStore().filter(e => retained.has(pinKey(e.path)));
+            try { localStorage.setItem(RECENT_KEY, JSON.stringify(persistent)); } catch (e) { }
+            sessionDropped = sessionDropped.filter(e => retained.has('dropped:' + e.name));
             renderRecent();
             renderSidebarRecent();
         }
@@ -7188,7 +7557,7 @@ if (isset($_GET['action'])) {
             const dropped = sessionDropped.map(e => ({ path: null, name: e.name, ext: e.ext, ts: e.ts }));
             const merged = [...persistent, ...dropped].sort((a, b) => b.ts - a.ts);
             const seen = new Set(), out = [];
-            for (const e of merged) { if (seen.has(e.name)) continue; seen.add(e.name); out.push(e); }
+            for (const e of merged) { const key = e.path ? pinKey(e.path) : 'dropped:' + e.name; if (seen.has(key)) continue; seen.add(key); out.push(e); }
             return out.slice(0, MAX_RECENT);
         }
         function renderRecent() {
@@ -7247,8 +7616,14 @@ if (isset($_GET['action'])) {
             }
             if (e.key === 'F12' && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); gotoNextBookmark(); return; }
             if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); saveDocx(); }
-            else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
-            else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); doRedo(); }
+            else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                if (e.target.closest && e.target.closest('input,textarea,[contenteditable="true"]') && !page.contains(e.target)) return;
+                e.preventDefault(); doUndo();
+            }
+            else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+                if (e.target.closest && e.target.closest('input,textarea,[contenteditable="true"]') && !page.contains(e.target)) return;
+                e.preventDefault(); doRedo();
+            }
             else if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); openFindReplace('find'); }
             else if (e.ctrlKey && e.key.toLowerCase() === 'h') { e.preventDefault(); openFindReplace('replace'); }
             else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'l') { e.preventDefault(); cmd('justifyLeft'); }
@@ -7304,7 +7679,7 @@ if (isset($_GET['action'])) {
             return '';
         });
         window.addEventListener('pagehide', () => {
-            if (hasUnsavedChanges()) autoBackupBeacon();
+            if (!appCloseApproved && hasUnsavedChanges()) autoBackupBeacon();
         });
 
         // ── Init ──

@@ -2727,6 +2727,163 @@ if (isset($_GET['action'])) {
         .dex-context-menu button.dex-danger:hover:not(:disabled) {
             background: #fde7e9;
         }
+
+        /* ── Fereastra Optiuni ── */
+        .opt-panel {
+            position: fixed;
+            top: 96px;
+            right: 24px;
+            z-index: 950;
+            width: 460px;
+            max-width: calc(100vw - 32px);
+            max-height: calc(100vh - 130px);
+            display: flex;
+            flex-direction: column;
+            background: #252935;
+            color: #e6e9f0;
+            border: 1px solid #3a3f4f;
+            border-radius: 10px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, .45);
+            font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+        }
+        .opt-panel[hidden] { display: none; }
+        .opt-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px 10px 16px;
+            border-bottom: 1px solid #3a3f4f;
+            cursor: move;
+            user-select: none;
+        }
+        .opt-head b { flex: 1; font-size: 15px; }
+        .opt-x {
+            background: transparent;
+            border: 1px solid #3a3f4f;
+            color: #cdd3df;
+            border-radius: 6px;
+            width: 30px;
+            height: 28px;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .opt-x:hover { background: #a4262c; border-color: #a4262c; color: #fff; }
+        .opt-body { overflow: auto; padding: 12px; }
+        .opt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .opt-tile {
+            display: grid;
+            grid-template-columns: 28px 1fr;
+            grid-template-rows: auto auto;
+            align-items: center;
+            column-gap: 6px;
+            text-align: left;
+            padding: 8px 10px;
+            background: #2f3442;
+            border: 1px solid #3a3f4f;
+            border-radius: 8px;
+            color: inherit;
+            font: inherit;
+            cursor: pointer;
+        }
+        .opt-tile:hover { border-color: #5b7fd6; background: #343a4a; }
+        .opt-ic { grid-row: 1 / span 2; font-size: 18px; text-align: center; }
+        .opt-name { font-weight: 600; }
+        .opt-hint, .opt-state { grid-column: 2; font-size: 12px; color: #9aa3b5; }
+        .opt-state.on { color: #4ade80; font-weight: 600; }
+        .opt-zoom { cursor: default; }
+        .opt-zoom-ctl { grid-column: 2; display: flex; gap: 4px; margin-top: 2px; }
+        .opt-zoom-ctl button {
+            background: #1f2330;
+            border: 1px solid #3a3f4f;
+            color: #e6e9f0;
+            border-radius: 5px;
+            min-width: 28px;
+            padding: 1px 6px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+        }
+        .opt-zoom-ctl button:hover { border-color: #5b7fd6; }
+        .opt-result {
+            margin-top: 12px;
+            padding: 10px 12px;
+            background: #1f2330;
+            border: 1px solid #3a3f4f;
+            border-radius: 8px;
+        }
+        .opt-result[hidden] { display: none; }
+        .opt-result h4 { margin: 0 0 8px; font-size: 14px; color: #fff; }
+        .opt-result table { width: 100%; border-collapse: collapse; }
+        .opt-result td { padding: 2px 0; }
+        .opt-result td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: #fff; }
+        .opt-list { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; }
+        .opt-list li {
+            padding: 5px 6px;
+            border-radius: 5px;
+            cursor: pointer;
+            display: flex;
+            gap: 8px;
+        }
+        .opt-list li:hover { background: #2f3442; }
+        .opt-list .pg { margin-left: auto; color: #9aa3b5; white-space: nowrap; font-size: 12px; }
+        .opt-list .ctx { color: #9aa3b5; font-size: 12px; }
+        .opt-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        .opt-row button, .opt-row select {
+            background: #2f3442;
+            border: 1px solid #3a3f4f;
+            color: #e6e9f0;
+            border-radius: 6px;
+            padding: 5px 12px;
+            font: inherit;
+            cursor: pointer;
+        }
+        .opt-row button.primary { background: #107c10; border-color: #107c10; color: #fff; }
+        .opt-muted { color: #9aa3b5; font-size: 12px; }
+
+        /* zoom (vizual) + pagina intunecata */
+        #pages.doc-zoomed { transform-origin: top center; }
+        #pages.doc-dark .page { filter: invert(.9) hue-rotate(180deg); }
+        #pages.doc-dark .page img, #pages.doc-dark .page svg, #pages.doc-dark .page video { filter: invert(1) hue-rotate(180deg); }
+        .opt-flash { animation: optFlash 1.6s ease-out; }
+        @keyframes optFlash { 0% { background: #ffe58a; } 100% { background: transparent; } }
+
+        /* mod concentrare */
+        .focus-exit {
+            display: none;
+            position: fixed;
+            top: 10px;
+            right: 14px;
+            z-index: 960;
+            background: rgba(37, 41, 53, .85);
+            color: #e6e9f0;
+            border: 1px solid #3a3f4f;
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            opacity: .35;
+        }
+        .focus-exit:hover { opacity: 1; }
+        body.focus-mode .focus-exit { display: block; }
+        body.focus-mode .topbar,
+        body.focus-mode .ribbon,
+        body.focus-mode .sidebar,
+        body.focus-mode .statusbar { display: none !important; }
+
+        /* printare: doar colile documentului, cate una pe foaie A4 */
+        @media print {
+            @page { size: A4; margin: 0; }
+            html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+            body > *:not(.main):not(#canvas) { display: none !important; }
+            .topbar, .ribbon, .sidebar, .statusbar, .opt-panel, .focus-exit, .overlay, #tabBar,
+            .bookmark-marker, #pdfPages { display: none !important; }
+            .main, #canvas { display: block !important; overflow: visible !important; height: auto !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
+            #pages { transform: none !important; margin: 0 !important; gap: 0 !important; display: block !important; }
+            #pages.doc-dark .page, #pages.doc-dark .page img { filter: none !important; }
+            .page { box-shadow: none !important; margin: 0 !important; break-after: page; page-break-after: always; }
+            .page:last-child { break-after: auto; page-break-after: auto; }
+            .page::after { color: #888 !important; }
+        }
     </style>
 </head>
 
@@ -2739,6 +2896,7 @@ if (isset($_GET['action'])) {
         <button class="topbtn pin-btn" id="pinBtn" onclick="togglePinCurrent()" title="PIN">📌</button>
         <button class="topbtn" onclick="showOverlay()" title="Deschide alt fisier">＋ Deschide</button>
         <button class="topbtn" onclick="openCompareDialog()" title="Compara doua documente">Compare</button>
+        <button class="topbtn" id="optionsBtn" onclick="toggleOptionsPanel()" title="Optiuni: zoom, pagina intunecata, statistici, capitole, curatare, citire cu voce, printare...">⚙ Opțiuni</button>
         <button class="topbtn bookmark-btn" id="bookmarkBtn" onclick="toggleBookmark(event)" title="Semn de carte">T</button>
         <button class="topbtn" onclick="closeActiveTab()" title="Inchide tab-ul curent">Inchide tab</button>
         <button class="topbtn primary" onclick="saveDocx()">💾 Salveaza (Ctrl+S)</button>
@@ -2756,7 +2914,7 @@ if (isset($_GET['action'])) {
                 <div class="clip-col">
                     <button class="rbtn-lbl" title="Decupează (Ctrl+X)" onclick="cmd('cut')"><span class="ei">✂</span> Cut</button>
                     <button class="rbtn-lbl" title="Copiază (Ctrl+C)" onclick="cmd('copy')"><span class="ei">⧉</span> Copy</button>
-                    <button class="rbtn-lbl" id="btnPainter" title="Descriptor de formate: click pe sursă → click aici → selectează/click pe țintă" onclick="toggleFormatPainter()"><span class="ei">🖌️</span> Format Painter</button>
+                    <button class="rbtn-lbl" id="btnPainter" title="Descriptor de formate: click pe cuvântul-sursă → click aici → click pe paragraful-țintă (tot paragraful) sau selectează câteva cuvinte. Copiază exact stilul cuvântului: font, mărime, culoare, bold, italic, subliniere." onclick="toggleFormatPainter()"><span class="ei">🖌️</span> Format Painter</button>
                 </div>
             </div>
             <div class="rgroup-label">Clipboard <span class="rlaunch" title="(grup)">⤡</span></div>
@@ -2927,6 +3085,37 @@ if (isset($_GET['action'])) {
             <div id="pdfPages"></div>
         </div>
     </div>
+
+    <!-- FEREASTRA OPTIUNI: ramane deschisa pana la × (nu e modala, poti lucra in document) -->
+    <div id="optionsPanel" class="opt-panel" role="dialog" aria-labelledby="optTitle" hidden>
+        <div class="opt-head" id="optHead">
+            <b id="optTitle">⚙ Opțiuni</b>
+            <button type="button" class="opt-x" onclick="toggleOptionsPanel(false)" title="Închide">&times;</button>
+        </div>
+        <div class="opt-body">
+            <div class="opt-grid">
+                <div class="opt-tile opt-zoom" title="Zoom pagină: mărește sau micșorează paginile pe ecran (50%–200%), fără să schimbe documentul sau împărțirea pe pagini. Click pe procent = revii la 100%. Se ține minte data viitoare.">
+                    <span class="opt-ic">🔍</span><span class="opt-name">Zoom pagină</span>
+                    <span class="opt-zoom-ctl">
+                        <button type="button" onclick="changeDocZoom(-10)" title="Micșorează">−</button>
+                        <button type="button" id="optZoomVal" onclick="setDocZoom(100)" title="Revino la 100%">100%</button>
+                        <button type="button" onclick="changeDocZoom(10)" title="Mărește">+</button>
+                    </span>
+                </div>
+                <button type="button" class="opt-tile" id="optDarkBtn" onclick="toggleDarkPage()" title="Pagină întunecată: paginile devin închise la culoare, cu text deschis, ca să citești seara fără să obosească ochii. Doar afișare — documentul salvat rămâne alb. Click din nou = oprește."><span class="opt-ic">🌙</span><span class="opt-name">Pagină întunecată</span><span class="opt-state" id="optDarkState">OFF</span></button>
+                <button type="button" class="opt-tile" onclick="enterFocusMode()" title="Mod concentrare: ecran complet, ascunde meniurile, bara de fișiere și bara de jos — rămâne doar textul. Ieși cu Esc sau cu butonul din dreapta-sus."><span class="opt-ic">⛶</span><span class="opt-name">Mod concentrare</span><span class="opt-hint">ecran complet</span></button>
+                <button type="button" class="opt-tile" onclick="showDocStats()" title="Statistici: numără cuvintele, caracterele, frazele, paragrafele și paginile, estimează timpul de citire și arată cele mai folosite cuvinte. Cu text selectat, numără doar selecția."><span class="opt-ic">📊</span><span class="opt-name">Statistici</span><span class="opt-hint">cuvinte, timp citire</span></button>
+                <button type="button" class="opt-tile" onclick="showChapterNav()" title="Navigare capitole: listează titlurile din carte (Heading, „Capitolul…”, „1. …”) cu pagina fiecăruia. Click pe un titlu = sari direct la el."><span class="opt-ic">📑</span><span class="opt-name">Navigare capitole</span><span class="opt-hint">click → capitol</span></button>
+                <button type="button" class="opt-tile" onclick="cleanDocSpaces()" title="Curăță spațiile: spațiile duble devin unul singur și scoate spațiul greșit dinainte de , . ; : ! ? ) și de după ( „. Lucrează pe selecție sau, fără selecție, pe tot documentul (cere confirmare). Ctrl+Z anulează."><span class="opt-ic">🧹</span><span class="opt-name">Curăță spațiile</span><span class="opt-hint">duble, înainte de , .</span></button>
+                <button type="button" class="opt-tile" onclick="fixRomanianQuotes()" title="Ghilimele românești: transformă ghilimelele drepte &quot;text&quot; și cele englezești “text” / «text» în ghilimele românești „text”. Pe selecție sau pe tot documentul (cere confirmare). Ctrl+Z anulează."><span class="opt-ic">„”</span><span class="opt-name">Ghilimele românești</span><span class="opt-hint">"text" → „text”</span></button>
+                <button type="button" class="opt-tile" onclick="showNearRepeats()" title="Cuvinte repetate: găsește același cuvânt (de minim 4 litere) folosit de 2 ori la mai puțin de 25 de cuvinte distanță — repetiții de stil de corectat. Click pe unul din listă = îl selectez în text."><span class="opt-ic">🔁</span><span class="opt-name">Cuvinte repetate</span><span class="opt-hint">aproape unul de altul</span></button>
+                <button type="button" class="opt-tile" onclick="showReadAloud()" title="Citește cu voce: calculatorul îți citește textul cu voce tare (voce românească, dacă e instalată) — util la corectură, auzi greșelile. Citește selecția sau de la paragraful de pe ecran înainte. Ai Pauză și Stop."><span class="opt-ic">🔊</span><span class="opt-name">Citește cu voce</span><span class="opt-hint">în română</span></button>
+                <button type="button" class="opt-tile" onclick="printDocument()" title="Printează / PDF: deschide fereastra de printare doar cu paginile documentului (fără meniuri), câte o pagină A4 pe foaie. Acolo poți alege și „Salvează ca PDF”."><span class="opt-ic">🖨️</span><span class="opt-name">Printează / PDF</span><span class="opt-hint">doar paginile</span></button>
+            </div>
+            <div id="optResult" class="opt-result" hidden></div>
+        </div>
+    </div>
+    <button type="button" id="focusExitBtn" class="focus-exit" onclick="exitFocusMode()" title="Ieși din modul concentrare (Esc)">Ieși din concentrare ✕</button>
 
     <div class="statusbar">
         <span id="stPage">Pagina 1 / 1</span>
@@ -3584,7 +3773,14 @@ if (isset($_GET['action'])) {
         // Paginare RAPIDA: masoara toate blocurile o singura data intr-o coala-proba
         // (1 reflow), apoi imparte pe pagini matematic — fara reflow per bloc.
         // 225 pagini: ~10s (vechi) → sub 0.3s (nou).
+        // Zoom-ul din Optiuni scaleaza #pages vizual (transform). Paginarea masoara randuri pe ecran,
+        // asa ca pe durata ei zoom-ul se scoate si se pune la loc (sincron, fara palpaire).
         function setDocHtml(html) {
+            const z = typeof suspendDocZoom === 'function' ? suspendDocZoom() : null;
+            try { return setDocHtmlCore(html); }
+            finally { if (z) resumeDocZoom(z); }
+        }
+        function setDocHtmlCore(html) {
             showEditor();
             page.innerHTML = '';
             const src = document.createElement('div');
@@ -5369,8 +5565,9 @@ if (isset($_GET['action'])) {
             runCmd(() => document.execCommand('insertHTML', false, html));
         }
 
-        // ── Format Painter ── copiază stilul ÎNTREGULUI paragraf-sursă (nu doar al
-        // cuvântului de sub cursor), apoi:
+        // ── Format Painter ── copiază stilul CUVÂNTULUI de sub cursor (sau al începutului
+        // selecției): font, mărime, culoare, bold, italic, subliniere, fundal — exact ca în Word.
+        // Ex: click pe „Puterea de persuasiune” (bold) → ținta devine bold, nu normală. Apoi:
         //   • CLICK simplu pe țintă (fără tragere)  → înlocuiește formatarea pe TOT paragraful
         //   • SELECT cu mouse-ul (tragere)          → aplică DOAR pe textul selectat
         // Distincția se face măsurând mișcarea mouse-ului între mousedown și mouseup
@@ -5397,6 +5594,36 @@ if (isset($_GET['action'])) {
             totals.forEach(t => { if (!best || t.len > best.len) best = t; });
             return best ? best.el : block;
         }
+        // elementul care poartă stilul textului de sub cursor (sau al primei litere selectate)
+        function painterSourceElement(sel) {
+            if (!sel || !sel.rangeCount) return null;
+            const r = sel.getRangeAt(0);
+            if (!r.collapsed) {
+                const anc = r.commonAncestorContainer;
+                const root = anc.nodeType === 1 ? anc : anc.parentNode;
+                const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                let tn;
+                while ((tn = w.nextNode())) {
+                    let ok = false;
+                    try { ok = r.intersectsNode(tn); } catch (e) { }
+                    if (!ok) continue;
+                    const from = tn === r.startContainer ? r.startOffset : 0;
+                    if (/\S/.test(tn.nodeValue.slice(from))) return tn.parentElement;
+                }
+            }
+            let c = r.startContainer, off = r.startOffset;
+            if (c.nodeType === 1) {
+                // cursor între elemente → textul de lângă el
+                const child = c.childNodes[off] || c.childNodes[off - 1];
+                if (!child) return null;
+                if (child.nodeType === 3) return child.parentElement;
+                const w = document.createTreeWalker(child, NodeFilter.SHOW_TEXT);
+                let tn; while ((tn = w.nextNode())) if (/\S/.test(tn.nodeValue)) return tn.parentElement;
+                return null;
+            }
+            if (c.nodeType === 3 && /\S/.test(c.nodeValue)) return c.parentElement;
+            return null;
+        }
         function toggleFormatPainter() {
             if (painter) { disarmPainter(); toast('Format Painter oprit'); return; }
             restoreEditorSelection();
@@ -5406,8 +5633,10 @@ if (isset($_GET['action'])) {
             if (n && n.nodeType === 3) n = n.parentNode;
             if (!n || !page.contains(n)) { toast('Pune cursorul/selectează în textul-sursă, apoi click pe Format'); return; }
             const sourceBlock = blockOf(n);
-            // preia stilul întregului paragraf-sursă (nu doar al cuvântului de sub cursor)
-            const cs = getComputedStyle(dominantStyleElement(sourceBlock) || n);
+            // preia stilul cuvântului de sub cursor / al primului caracter selectat; doar dacă
+            // cursorul nu stă pe text (ex. paragraf gol), cade pe stilul dominant al paragrafului
+            const srcEl = painterSourceElement(sel) || dominantStyleElement(sourceBlock) || n;
+            const cs = getComputedStyle(srcEl);
             const bcs = sourceBlock ? getComputedStyle(sourceBlock) : null;
             painter = {
                 fontFamily: cs.fontFamily, fontSize: cs.fontSize, color: cs.color,
@@ -7220,6 +7449,498 @@ if (isset($_GET['action'])) {
             }
         }
         window.addEventListener('resize', () => updateBookmarkUi());
+
+        // ════════════════════════════════════════════════════════════════════
+        //  FEREASTRA OPTIUNI — 10 functii. Fereastra nu e modala: ramane deschisa
+        //  (si se poate muta tragand de titlu) pana apesi ×.
+        // ════════════════════════════════════════════════════════════════════
+        function optStore(key, val) {
+            try {
+                if (val === undefined) return localStorage.getItem('we_opt_' + key);
+                localStorage.setItem('we_opt_' + key, String(val));
+            } catch (e) { }
+            return null;
+        }
+        function toggleOptionsPanel(force) {
+            const p = document.getElementById('optionsPanel');
+            const show = force === undefined ? p.hidden : !!force;
+            p.hidden = !show;
+            document.getElementById('optionsBtn').classList.toggle('active', show);
+        }
+        (function makeOptionsDraggable() {
+            const p = document.getElementById('optionsPanel');
+            const h = document.getElementById('optHead');
+            let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
+            h.addEventListener('mousedown', e => {
+                if (e.target.closest('button')) return;
+                const r = p.getBoundingClientRect();
+                dragging = true; sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
+                e.preventDefault();
+            });
+            window.addEventListener('mousemove', e => {
+                if (!dragging) return;
+                const x = Math.min(Math.max(0, ox + e.clientX - sx), window.innerWidth - 120);
+                const y = Math.min(Math.max(0, oy + e.clientY - sy), window.innerHeight - 40);
+                p.style.left = x + 'px'; p.style.top = y + 'px'; p.style.right = 'auto';
+            });
+            window.addEventListener('mouseup', () => { dragging = false; });
+        })();
+        function optResult(html) {
+            const box = document.getElementById('optResult');
+            box.innerHTML = html;
+            box.hidden = !html;
+            return box;
+        }
+        function optEsc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+        function optHasDoc() {
+            if (!page.querySelector('.page') || !page.innerText.trim()) { toast('Deschide întâi un document'); return false; }
+            return true;
+        }
+        // un bloc (paragraf) → pagina lui + mutare acolo, cu evidentiere scurta
+        function optGoToBlock(block, select) {
+            if (!block || !block.isConnected) return;
+            const cr = canvasEl.getBoundingClientRect();
+            const br = block.getBoundingClientRect();
+            canvasEl.scrollTo({ top: Math.max(0, canvasEl.scrollTop + br.top - cr.top - canvasEl.clientHeight * 0.3), behavior: 'smooth' });
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            if (select) sel.addRange(select);
+            else { const r = document.createRange(); r.selectNodeContents(block); r.collapse(true); sel.addRange(r); }
+            saveEditorSelection();
+            block.classList.remove('opt-flash'); void block.offsetWidth; block.classList.add('opt-flash');
+            setTimeout(() => block.classList.remove('opt-flash'), 1700);
+        }
+        // dupa o modificare facuta din Optiuni: ca dupa orice editare (Undo deja inregistrat inainte)
+        function optAfterEdit() {
+            appCloseApproved = false;
+            saveEditorSelection();
+            updateWordCount();
+            refreshActive();
+            syncActiveTab();
+            scheduleEditorRepaginateIfNeeded(80);
+            scheduleAutoBackup();
+        }
+        // nodurile text din document (fara marcajele temporare ale editorului)
+        function optTextNodes(root) {
+            const out = [];
+            const w = document.createTreeWalker(root || page, NodeFilter.SHOW_TEXT, {
+                acceptNode: n => (n.parentElement && n.parentElement.closest('[data-page-caret-marker],.bookmark-marker'))
+                    ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+            });
+            while (w.nextNode()) out.push(w.currentNode);
+            return out;
+        }
+        function optSelectedBlocks() {
+            const sel = window.getSelection();
+            if (sel.rangeCount && !sel.getRangeAt(0).collapsed && page.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+                return blocksInRange(sel.getRangeAt(0));
+            }
+            return null;
+        }
+
+        // ── 1. Zoom pagina (vizual; nu schimba documentul) ──
+        var docZoom = 100; // var (nu let): paginarea poate cere zoom-ul inainte sa ajunga scriptul aici
+        function applyDocZoom() {
+            const z = docZoom / 100;
+            const before = canvasEl.scrollHeight ? canvasEl.scrollTop / canvasEl.scrollHeight : 0;
+            if (z === 1) {
+                page.classList.remove('doc-zoomed');
+                page.style.transform = ''; page.style.marginBottom = ''; page.style.transformOrigin = '';
+            } else {
+                page.classList.add('doc-zoomed');
+                page.style.transform = 'scale(' + z + ')';
+                // colile late (zoom mare) se scaleaza de la stanga, ca sa nu iasa din ecran prin stanga
+                page.style.transformOrigin = (page.offsetWidth * z > canvasEl.clientWidth) ? 'top left' : 'top center';
+                // la micsorare transform nu reduce spatiul ocupat: il scadem, ca derularea sa se opreasca
+                // la ultima pagina (la marire browserul extinde singur zona de derulare)
+                page.style.marginBottom = z < 1 ? ((z - 1) * page.offsetHeight) + 'px' : '';
+            }
+            canvasEl.scrollTop = before * canvasEl.scrollHeight;
+            const v = document.getElementById('optZoomVal');
+            if (v) v.textContent = docZoom + '%';
+            updateBookmarkUi();
+        }
+        function setDocZoom(v) {
+            docZoom = Math.max(50, Math.min(200, Math.round(v / 10) * 10));
+            optStore('zoom', docZoom);
+            applyDocZoom();
+        }
+        function changeDocZoom(d) { setDocZoom(docZoom + d); }
+        function suspendDocZoom() {
+            if (docZoom === 100) return null;
+            const st = { scroll: canvasEl.scrollTop, scrollH: canvasEl.scrollHeight };
+            page.style.transform = ''; page.style.marginBottom = '';
+            return st;
+        }
+        function resumeDocZoom(st) {
+            const z = docZoom / 100;
+            page.style.transform = 'scale(' + z + ')';
+            page.style.marginBottom = z < 1 ? ((z - 1) * page.offsetHeight) + 'px' : '';
+            canvasEl.scrollTop = st.scrollH ? st.scroll / st.scrollH * canvasEl.scrollHeight : st.scroll;
+        }
+
+        // ── 2. Pagina intunecata (lectura seara; doar afisare) ──
+        function setDarkPage(on) {
+            page.classList.toggle('doc-dark', on);
+            optStore('dark', on ? 1 : 0);
+            const s = document.getElementById('optDarkState');
+            if (s) { s.textContent = on ? 'ON' : 'OFF'; s.classList.toggle('on', on); }
+        }
+        function toggleDarkPage() { setDarkPage(!page.classList.contains('doc-dark')); }
+
+        // ── 3. Mod concentrare: ecran complet, fara bare (Esc iese) ──
+        function enterFocusMode() {
+            document.body.classList.add('focus-mode');
+            try { if (document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => { }); } catch (e) { }
+            setTimeout(updateBookmarkUi, 300);
+            toast('Mod concentrare — Esc sau butonul din dreapta-sus pentru ieșire');
+        }
+        function exitFocusMode() {
+            document.body.classList.remove('focus-mode');
+            try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { }
+            setTimeout(updateBookmarkUi, 300);
+        }
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && document.body.classList.contains('focus-mode')) exitFocusMode();
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && document.body.classList.contains('focus-mode') && !document.fullscreenElement) exitFocusMode();
+        });
+
+        // ── 4. Statistici (document sau selectie) ──
+        const OPT_STOPWORDS = new Set(('care este sunt pentru într între acest această aceste acești acel acea acei acele după când cum unde ' +
+            'foarte prin fără către despre decât doar chiar însă dacă asta aceasta acesta poate toate toți totul avea avut fost fiind ' +
+            'mult multe multă mulți altă alte alți altul alta orice nici sale său lui lor noastră nostru voastră vostru meu mea mele ' +
+            'tale tău căci ceea cele cei cine ceva cineva nimic nimeni astfel atunci acum încă deja mereu niciodată totuși adică ' +
+            'pentru fiecare face făcut avem aveți aveau ești este suntem sunteți erau eram vom veți vor fie decât dintre printre ' +
+            'acolo aici numai doar până spre peste sub lângă asupra împotriva ale alor cele unui unei unor that this with from have ' +
+            'were which their there about would these other into they them then than').split(/\s+/));
+        function optWords(text) {
+            return String(text || '').match(/[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu) || [];
+        }
+        function showDocStats() {
+            if (!optHasDoc()) return;
+            const sel = window.getSelection();
+            const useSel = sel.rangeCount && !sel.isCollapsed && page.contains(sel.getRangeAt(0).commonAncestorContainer);
+            const text = useSel ? sel.toString() : page.innerText;
+            const words = optWords(text);
+            const chars = text.replace(/\n/g, '').length;
+            const charsNoSp = text.replace(/\s/g, '').length;
+            const sentences = (text.match(/[^.!?…]+[.!?…]+(?=\s|$)/g) || []).length || (words.length ? 1 : 0);
+            const blocks = useSel ? blocksInRange(sel.getRangeAt(0)) : bookmarkBlocks();
+            const paras = blocks.filter(b => b.textContent.trim()).length;
+            const pages = page.querySelectorAll('.page').length;
+            const mins = words.length / 200;
+            const readTime = mins < 1 ? 'sub 1 minut' : (mins < 60 ? Math.round(mins) + ' minute' : Math.floor(mins / 60) + ' h ' + Math.round(mins % 60) + ' min');
+            const freq = new Map();
+            words.forEach(w => {
+                const k = w.toLocaleLowerCase('ro');
+                if (k.length < 4 || OPT_STOPWORDS.has(k) || /^\d+$/.test(k)) return;
+                freq.set(k, (freq.get(k) || 0) + 1);
+            });
+            const top = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+            const fmt = n => n.toLocaleString('ro-RO');
+            optResult('<h4>📊 Statistici ' + (useSel ? '— selecția' : '— tot documentul') + '</h4><table>' +
+                '<tr><td>Cuvinte</td><td>' + fmt(words.length) + '</td></tr>' +
+                '<tr><td>Caractere (cu spații)</td><td>' + fmt(chars) + '</td></tr>' +
+                '<tr><td>Caractere (fără spații)</td><td>' + fmt(charsNoSp) + '</td></tr>' +
+                '<tr><td>Fraze</td><td>' + fmt(sentences) + '</td></tr>' +
+                '<tr><td>Paragrafe</td><td>' + fmt(paras) + '</td></tr>' +
+                (useSel ? '' : '<tr><td>Pagini</td><td>' + fmt(pages) + '</td></tr>') +
+                '<tr><td>Cuvinte / frază (medie)</td><td>' + (sentences ? (words.length / sentences).toFixed(1).replace('.', ',') : '0') + '</td></tr>' +
+                '<tr><td>Timp de citire (~200 cuv./min)</td><td>' + readTime + '</td></tr></table>' +
+                (top.length ? '<div class="opt-muted" style="margin-top:8px">Cele mai folosite cuvinte (min. 4 litere):</div><div style="margin-top:4px">' +
+                    top.map(([w, n]) => optEsc(w) + ' <span class="opt-muted">×' + n + '</span>').join(', ') + '</div>' : ''));
+        }
+
+        // ── 5. Navigare capitole ──
+        // Titlu de capitol = Heading 1–3, SAU un paragraf scurt scris cu font mai mare decat textul
+        // obisnuit al cartii (fontul cel mai des intalnit). Cuprinsul are fontul textului normal,
+        // deci nu intra in lista. Un numar de capitol pe rand separat („-2-”, „2”, „II”) se lipeste
+        // de titlul de dupa el: „2. Pasiunea”.
+        function optBlockFontPx(b) {
+            let m = parseFloat(getComputedStyle(b).fontSize) || 0;
+            b.querySelectorAll('*').forEach(e => {
+                if (e.firstChild && e.textContent.trim()) m = Math.max(m, parseFloat(getComputedStyle(e).fontSize) || 0);
+            });
+            return Math.round(m);
+        }
+        function optChapterCandidates() {
+            const blocks = bookmarkBlocks();
+            const info = blocks.map(b => {
+                const t = b.textContent.replace(/\s+/g, ' ').trim();
+                return { block: b, text: t, font: t ? optBlockFontPx(b) : 0 };
+            });
+            const freq = new Map();
+            info.forEach(x => { if (x.text) freq.set(x.font, (freq.get(x.font) || 0) + x.text.length); });
+            const base = [...freq.entries()].sort((a, b) => b[1] - a[1])[0];
+            const baseFont = base ? base[0] : 16;
+            const isNumberLine = t => /^[-–—\s]*(\d{1,3}|[IVXLC]{1,6})[-–—.\s]*$/.test(t);
+            const out = [];
+            let pendingNumber = null;
+            info.forEach((x, i) => {
+                const t = x.text;
+                if (!t) return;
+                // bucati de paragraf rupte intre doua pagini (de paginare) nu sunt titluri
+                if (x.block.hasAttribute('data-pg-cont') || x.block.hasAttribute('data-pg-head')) { pendingNumber = null; return; }
+                const heading = /^H[1-3]$/.test(x.block.tagName);
+                const big = x.font >= baseFont * 1.1;
+                // cuvinte de titlu; liniile din cuprins se termina cu nr. paginii („Introducere 11”) → excluse
+                const keyword = /^(capitolul|capitol|partea|prefaț[aă]|cuvânt înainte|introducere|încheiere|concluzi[ei]|epilog|prolog|mulțumiri|bibliografie|despre autor|chapter)\b/i.test(t)
+                    && t.length <= 80 && !/\s\d{1,4}$/.test(t);
+                // primul rand scurt de dupa un numar de capitol („-4-”) e titlul, chiar daca are fontul normal
+                const afterNumber = pendingNumber && i - pendingNumber.idx <= 3;
+                if ((big || heading) && isNumberLine(t)) {
+                    pendingNumber = { block: x.block, num: t.replace(/[-–—.\s]/g, ''), idx: i };
+                    return;
+                }
+                // un motto/citat scurt scris mare (se termina cu punct) nu e titlu
+                const sentence = /[.!?…”"»]$/.test(t) && t.length > 40;
+                if (t.length <= 110 && !sentence && (heading || big || keyword || afterNumber)) {
+                    const num = pendingNumber && i - pendingNumber.idx <= 3 ? pendingNumber : null;
+                    out.push({
+                        block: num ? num.block : x.block,
+                        firstBlock: x.block,
+                        numbered: !!num,
+                        text: (num ? num.num + '. ' : '') + t,
+                        level: heading ? +x.block.tagName[1] : 2
+                    });
+                }
+                pendingNumber = null;
+            });
+            // titluri de pe mai multe randuri la rand (ex. coperta: „Cele / 63 de calitati / ale liderului”) → unul singur
+            const merged = [];
+            out.forEach(it => {
+                const prev = merged[merged.length - 1];
+                const pi = prev ? blocks.indexOf(prev.lastBlock || prev.firstBlock) : -2;
+                if (prev && !it.numbered && blocks.indexOf(it.firstBlock) === pi + 1) {
+                    prev.text += ' ' + it.text; prev.lastBlock = it.firstBlock;
+                } else merged.push(it);
+            });
+            return merged;
+        }
+        function showChapterNav() {
+            if (!optHasDoc()) return;
+            const items = optChapterCandidates();
+            if (!items.length) { optResult('<h4>📑 Navigare capitole</h4><div class="opt-muted">Nu am găsit titluri (Heading 1–3 sau rânduri scurte scrise mai mare decât textul).</div>'); return; }
+            const box = optResult('<h4>📑 Navigare capitole <span class="opt-muted">(' + items.length + ')</span></h4><ul class="opt-list"></ul>' +
+                '<div class="opt-muted" style="margin-top:6px">Click pe un titlu ca să mergi la el. Titlu = Heading sau rând scurt scris mai mare decât textul cărții.</div>');
+            const ul = box.querySelector('ul');
+            items.forEach(it => {
+                const li = document.createElement('li');
+                li.style.paddingLeft = (6 + (it.level - 1) * 12) + 'px';
+                li.innerHTML = '<span></span><span class="pg"></span>';
+                li.firstChild.textContent = it.text;
+                li.lastChild.textContent = 'pag. ' + bookmarkPageNumber(it.block);
+                li.onclick = () => optGoToBlock(it.block);
+                ul.appendChild(li);
+            });
+        }
+
+        // ── 6. Curata spatiile ──
+        function cleanDocSpaces() {
+            if (!optHasDoc()) return;
+            const blocks = optSelectedBlocks();
+            if (!blocks && !confirm('Curăț spațiile în TOT documentul?\n(Pentru o singură parte, selecteaz-o întâi.)\n\n• spații duble → un spațiu\n• fără spațiu înainte de , . ; : ! ? ) ]\n• fără spațiu după ( [ „')) return;
+            const nodes = blocks ? blocks.flatMap(b => optTextNodes(b)) : optTextNodes(page);
+            const rules = [
+                [/ {2,}/g, ' '],
+                [/ +([,.;:!?…)\]»”])/g, '$1'],
+                [/([(\[«„]) +/g, '$1']
+            ];
+            let count = 0;
+            const changes = [];
+            nodes.forEach(n => {
+                let v = n.nodeValue, nv = v;
+                rules.forEach(([re, rep]) => { nv = nv.replace(re, m => { count++; return m.replace(re, rep); }); });
+                if (nv !== v) changes.push([n, nv]);
+            });
+            if (!changes.length) { toast('Nu am găsit spații de curățat'); return; }
+            recordUndo(); suppressSnap = true;
+            try { changes.forEach(([n, nv]) => { n.nodeValue = nv; }); } finally { suppressSnap = false; }
+            optAfterEdit();
+            toast(count + ' corecturi de spații' + (blocks ? ' în selecție' : '') + ' (Ctrl+Z anulează)');
+        }
+
+        // ── 7. Ghilimele romanesti: "text" / “text” → „text” ──
+        function fixRomanianQuotes() {
+            if (!optHasDoc()) return;
+            const sel = optSelectedBlocks();
+            if (!sel && !confirm('Transform ghilimelele în TOT documentul?\n"text" și “text” → „text”\n(Pentru o singură parte, selecteaz-o întâi.)')) return;
+            const blocks = sel || bookmarkBlocks();
+            const changes = [];
+            let count = 0;
+            blocks.forEach(b => {
+                const nodes = optTextNodes(b);
+                let prev = ' '; // ultimul caracter dinainte (pentru a sti daca ghilimeaua deschide sau inchide)
+                nodes.forEach(n => {
+                    const v = n.nodeValue;
+                    let out = '';
+                    for (let i = 0; i < v.length; i++) {
+                        const c = v[i];
+                        if (c === '"' || c === '“' || c === '”' || c === '«' || c === '»') {
+                            const opening = c === '“' || c === '«' || (c === '"' && /[\s(\[{—–\-\/]/.test(prev));
+                            const closing = c === '”' || c === '»' || (c === '"' && !opening);
+                            const want = opening ? '„' : (closing ? '”' : c);
+                            if (want !== c) count++;
+                            out += want;
+                        } else out += c;
+                        prev = c;
+                    }
+                    if (out !== v) changes.push([n, out]);
+                });
+            });
+            if (!changes.length) { toast('Nu am găsit ghilimele de transformat'); return; }
+            recordUndo(); suppressSnap = true;
+            try { changes.forEach(([n, nv]) => { n.nodeValue = nv; }); } finally { suppressSnap = false; }
+            optAfterEdit();
+            toast(count + ' ghilimele transformate în „…” (Ctrl+Z anulează)');
+        }
+
+        // ── 8. Cuvinte repetate aproape (acelasi cuvant de 2+ ori in 25 de cuvinte) ──
+        function optRangeForWord(block, charIndex, len) {
+            let pos = 0;
+            for (const n of optTextNodes(block)) {
+                const L = n.nodeValue.length;
+                if (charIndex < pos + L) {
+                    const r = document.createRange();
+                    r.setStart(n, charIndex - pos);
+                    let endNode = n, endOff = charIndex - pos + len;
+                    if (endOff > L) { endOff = L; }
+                    r.setEnd(endNode, endOff);
+                    return r;
+                }
+                pos += L;
+            }
+            return null;
+        }
+        function showNearRepeats() {
+            if (!optHasDoc()) return;
+            const WINDOW = 25;
+            const sel = optSelectedBlocks();
+            const blocks = (sel || bookmarkBlocks()).filter(b => b.textContent.trim());
+            const recent = []; // ultimele WINDOW cuvinte: {k}
+            const found = [];
+            blocks.forEach(b => {
+                const text = optTextNodes(b).map(n => n.nodeValue).join('');
+                const re = /[\p{L}\p{N}]+(?:[-'’][\p{L}\p{N}]+)*/gu;
+                let m;
+                while ((m = re.exec(text))) {
+                    const k = m[0].toLocaleLowerCase('ro');
+                    const counts = k.length >= 4 && !OPT_STOPWORDS.has(k) && !/^\d+$/.test(k);
+                    if (counts) {
+                        const back = recent.lastIndexOf(k);
+                        if (back !== -1) {
+                            found.push({ block: b, index: m.index, len: m[0].length, word: m[0], dist: recent.length - back,
+                                ctx: text.slice(Math.max(0, m.index - 40), m.index + m[0].length + 30) });
+                        }
+                    }
+                    recent.push(k);
+                    if (recent.length > WINDOW) recent.shift();
+                }
+            });
+            if (!found.length) { optResult('<h4>🔁 Cuvinte repetate</h4><div class="opt-muted">Nicio repetiție apropiată' + (sel ? ' în selecție' : '') + '. 👍</div>'); return; }
+            const shown = found.slice(0, 300);
+            const box = optResult('<h4>🔁 Cuvinte repetate aproape <span class="opt-muted">(' + found.length + (found.length > shown.length ? ', primele ' + shown.length : '') + ')</span></h4>' +
+                '<div class="opt-muted" style="margin-bottom:6px">Același cuvânt (min. 4 litere) de 2 ori în ' + WINDOW + ' de cuvinte' + (sel ? ', în selecție' : '') + '. Click → îl selectez în text.</div><ul class="opt-list"></ul>');
+            const ul = box.querySelector('ul');
+            shown.forEach(f => {
+                const li = document.createElement('li');
+                li.style.flexDirection = 'column';
+                li.style.gap = '1px';
+                li.innerHTML = '<span><b></b> <span class="opt-muted"></span><span class="pg"></span></span><span class="ctx"></span>';
+                li.querySelector('b').textContent = '„' + f.word + '”';
+                li.querySelector('.opt-muted').textContent = 'la ' + f.dist + ' cuvinte';
+                li.querySelector('.pg').textContent = ' · pag. ' + bookmarkPageNumber(f.block);
+                li.querySelector('.ctx').textContent = '…' + f.ctx.replace(/\s+/g, ' ') + '…';
+                li.onclick = () => optGoToBlock(f.block, optRangeForWord(f.block, f.index, f.len));
+                ul.appendChild(li);
+            });
+        }
+
+        // ── 9. Citeste cu voce (Web Speech, voce romaneasca daca exista) ──
+        let optSpeakQueue = [];
+        function optVoices() {
+            const all = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+            const ro = all.filter(v => /^ro(-|_|$)/i.test(v.lang));
+            return ro.length ? ro : all;
+        }
+        function showReadAloud() {
+            if (!('speechSynthesis' in window)) { optResult('<h4>🔊 Citește cu voce</h4><div class="opt-muted">Browserul nu are sinteză vocală.</div>'); return; }
+            const box = optResult('<h4>🔊 Citește cu voce</h4>' +
+                '<div class="opt-muted">Citește selecția sau, fără selecție, de la paragraful de pe ecran înainte.</div>' +
+                '<div class="opt-row"><select id="optVoice" title="Voce"></select>' +
+                '<select id="optRate" title="Viteză"><option value="0.8">lent</option><option value="1" selected>normal</option><option value="1.2">rapid</option><option value="1.5">foarte rapid</option></select></div>' +
+                '<div class="opt-row"><button class="primary" type="button" onclick="startReadAloud()">▶ Citește</button>' +
+                '<button type="button" onclick="pauseReadAloud()">⏸ Pauză / continuă</button>' +
+                '<button type="button" onclick="stopReadAloud()">⏹ Stop</button></div>' +
+                '<div class="opt-muted" id="optVoiceNote" style="margin-top:6px"></div>');
+            const fill = () => {
+                const s = box.querySelector('#optVoice');
+                if (!s) return;
+                const vs = optVoices();
+                const saved = optStore('voice');
+                s.innerHTML = '';
+                vs.forEach(v => { const o = document.createElement('option'); o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')'; if (v.name === saved) o.selected = true; s.appendChild(o); });
+                const note = box.querySelector('#optVoiceNote');
+                if (note) note.textContent = vs.length && /^ro/i.test(vs[0].lang) ? '' : 'Nu am găsit o voce românească instalată; folosesc o altă voce.';
+            };
+            fill();
+            speechSynthesis.onvoiceschanged = fill;
+            const rate = optStore('rate');
+            if (rate) box.querySelector('#optRate').value = rate;
+        }
+        function startReadAloud() {
+            stopReadAloud();
+            const sel = window.getSelection();
+            let parts = [];
+            if (sel.rangeCount && !sel.isCollapsed && page.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+                parts = sel.toString().split(/\n+/);
+            } else {
+                const blocks = bookmarkBlocks();
+                const start = Math.max(0, blocks.indexOf(blockNearViewportCenter()));
+                parts = blocks.slice(start, start + 200).map(b => b.textContent);
+            }
+            parts = parts.map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+            if (!parts.length) { toast('Nu am text de citit'); return; }
+            const vs = optVoices();
+            const vSel = document.getElementById('optVoice');
+            const voice = vs.find(v => vSel && v.name === vSel.value) || vs[0] || null;
+            const rateSel = document.getElementById('optRate');
+            const rate = rateSel ? parseFloat(rateSel.value) : 1;
+            if (voice) optStore('voice', voice.name);
+            optStore('rate', rate);
+            optSpeakQueue = parts.map(t => {
+                const u = new SpeechSynthesisUtterance(t);
+                if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'ro-RO';
+                u.rate = rate;
+                return u;
+            });
+            optSpeakQueue.forEach(u => speechSynthesis.speak(u));
+            toast('Citesc ' + parts.length + ' paragraf' + (parts.length === 1 ? '' : 'e'));
+        }
+        function pauseReadAloud() {
+            if (!window.speechSynthesis) return;
+            if (speechSynthesis.paused) speechSynthesis.resume(); else speechSynthesis.pause();
+        }
+        function stopReadAloud() {
+            if (window.speechSynthesis) speechSynthesis.cancel();
+            optSpeakQueue = [];
+        }
+
+        // ── 10. Printeaza / salveaza PDF (doar colile, cate una pe foaie A4) ──
+        function printDocument() {
+            if (!optHasDoc()) return;
+            toast('În fereastra de printare poți alege și „Salvează ca PDF”');
+            setTimeout(() => window.print(), 150);
+        }
+
+        // setarile retinute (zoom, pagina intunecata) se aplica la pornire
+        (function restoreOptions() {
+            const z = parseInt(optStore('zoom'), 10);
+            if (z && z !== 100) { docZoom = Math.max(50, Math.min(200, z)); setTimeout(applyDocZoom, 0); }
+            if (optStore('dark') === '1') setDarkPage(true);
+        })();
 
         function renderTabs() {
             const bar = document.getElementById('tabBar');

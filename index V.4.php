@@ -2339,8 +2339,10 @@ if (isset($_GET['action'])) {
                         Undo</button>
                     <button type="button" id="btnRedo" onclick="doRedoFromDesign()" title="Redo (Ctrl+Y)">&#8631;
                         Redo</button>
+                    <button type="button" id="btnClassNormal" class="btn btn-ghost"
+                        title="Normal: paragraful cu cursorul devine &lt;p class=&quot;text_obisnuit&quot;&gt; (scoate toate stilurile)">N</button>
                     <button type="button" id="btnClassObisnuit2" class="btn btn-ghost"
-                        title="Aplică clasa text_obisnuit2 pe selecția din Design">B</button>
+                        title="Bold: paragraful cu cursorul devine &lt;p class=&quot;text_obisnuit2&quot;&gt;; încă un click îl readuce la Normal">B</button>
                     <button type="button" id="btnQuickItalic" class="btn btn-ghost"
                         title="Italic (&lt;em&gt;) pe selecția din Design (ca butonul I de jos)">I</button>
                     <button type="button" id="btnQuickUnderline" class="btn btn-ghost"
@@ -2970,6 +2972,11 @@ if (isset($_GET['action'])) {
             editor.setCursor(tab.cursorPos);
             isSyncFromDesign = false;
             _isRestoringTab = false;
+            // Tab-uri deschise înainte (sau restaurate din backup) cu stil AI → rescrise acum
+            if (typeof cleanAiStyleInOpenedTab === 'function') {
+                const aiFixedTab = cleanAiStyleInOpenedTab(tab, tab.filePath || tab.fileName);
+                if (aiFixedTab) markTabDirtyAfterAiCleanup(tab, aiFixedTab);
+            }
 
             // Restore view mode
             setViewMode(tab.viewMode);
@@ -6638,6 +6645,23 @@ if (isset($_GET['action'])) {
                 applyCodeToDesignPanel();
             });
 
+            // Paste în Code cu <span style="font-family…"> (stil AI) → rescris imediat în stilul site-ului
+            editor.on('change', (cm, change) => {
+                if (!change || change.origin !== 'paste') return;
+                if (!/<span\b[^>]*\bstyle\s*=/i.test((change.text || []).join('\n'))) return;
+                if (!isCurrentFileHtml()) return;
+                setTimeout(() => {
+                    const src = cm.getValue();
+                    const edits = computeAiStyledSpanEdits(src);
+                    if (!edits.length) return;
+                    cm.operation(() => {
+                        for (let i = edits.length - 1; i >= 0; i--) {
+                            cm.replaceRange(edits[i].text, cm.posFromIndex(edits[i].from), cm.posFromIndex(edits[i].to), '+aiStyleCleanup');
+                        }
+                    });
+                }, 0);
+            });
+
             editor.on('change', () => {
                 // Clear design-click highlight when user edits in code
                 if (_imgClickMark) { _imgClickMark.clear(); _imgClickMark = null; }
@@ -7275,6 +7299,7 @@ if (isset($_GET['action'])) {
                 isSyncFromDesign = false;
                 _isRestoringTab = false;
                 editor.getDoc().clearHistory();
+                const aiFixedOpen = cleanAiStyleInOpenedTab(tab, data.file);
                 lastPreviewHadBody = tab.lastPreviewHadBody;
                 clearTimeout(previewDebounceTimer);
                 previewDebounceTimer = null;
@@ -7285,6 +7310,7 @@ if (isset($_GET['action'])) {
                 designUndoStack = [];
                 designRedoStack = [];
                 lastDesignSnapshot = null;
+                markTabDirtyAfterAiCleanup(tab, aiFixedOpen);
 
                 setViewMode('design');
                 renderTabs();
@@ -7335,6 +7361,9 @@ if (isset($_GET['action'])) {
                 var contentToSave = rawContent;
                 if (isCurrentFileHtml() && typeof removePasteWhitespaceNormalSpansFromHtml === 'function') {
                     contentToSave = removePasteWhitespaceNormalSpansFromHtml(contentToSave);
+                }
+                if (isCurrentFileHtml() && typeof cleanAiStyledSpansInHtml === 'function') {
+                    contentToSave = cleanAiStyledSpansInHtml(contentToSave);
                 }
                 if (isCurrentFileHtml() && typeof removeOrphanClosingSpansFromParagraphs === 'function') {
                     contentToSave = removeOrphanClosingSpansFromParagraphs(contentToSave);
@@ -7779,6 +7808,269 @@ if (isset($_GET['action'])) {
             );
         }
 
+        // ── Stil AI lipit (ChatGPT / Gemini) ──
+        // Textul copiat din AI vine adesea ca
+        //   <p class="text_obisnuit"><span style="font-family: …; font-size: 14px; font-weight: bold;">…</span></p>
+        // Span-urile care au DOAR atributul style, aflate într-un <p>, sunt desfăcute:
+        //  - bold pe tot paragraful  → <p class="text_obisnuit2">text</p>
+        //  - bold doar pe o bucată   → <span class="text_obisnuit2">bucata</span>
+        //  - italic / underline      → <em> / <u>
+        //  - restul stilului (font, mărime, culoare…) se aruncă.
+        function isAiStyledSpan(el) {
+            if (!el || el.nodeName !== 'SPAN') return false;
+            const attrs = el.attributes;
+            return !!(attrs && attrs.length === 1 && String(attrs[0].name).toLowerCase() === 'style');
+        }
+
+        function paragraphTextIsAllInside(p, test) {
+            const doc = p.ownerDocument;
+            const walker = doc.createTreeWalker(p, NodeFilter.SHOW_TEXT, null);
+            let n, any = false;
+            while ((n = walker.nextNode())) {
+                if (!/\S/.test(n.nodeValue.replace(/ /g, ' '))) continue;
+                any = true;
+                let a = n.parentNode, ok = false;
+                while (a && a !== p) {
+                    if (a.nodeType === 1 && test(a)) { ok = true; break; }
+                    a = a.parentNode;
+                }
+                if (!ok) return false;
+            }
+            return any;
+        }
+
+        function canSwapParagraphToObisnuit2(p) {
+            const cls = (p.getAttribute('class') || '').trim();
+            return !cls || /^text_obisnuit2?$/.test(cls);
+        }
+
+        function cleanAiStyledSpansInParagraph(p) {
+            if (!p || !p.querySelectorAll) return false;
+            const spans = Array.prototype.slice.call(p.querySelectorAll('span[style]')).filter(isAiStyledSpan);
+            if (!spans.length) return false;
+            const doc = p.ownerDocument;
+            const boldRe = /font-weight\s*:\s*(?:bold|bolder|[6-9]00)\b/i;
+            const isBoldSpan = function (el) {
+                return el.nodeName === 'SPAN' && spans.indexOf(el) !== -1 && boldRe.test(el.getAttribute('style') || '');
+            };
+            const wholeBold = canSwapParagraphToObisnuit2(p) && paragraphTextIsAllInside(p, isBoldSpan);
+            const alreadyBold = wholeBold || (p.classList && p.classList.contains('text_obisnuit2'));
+            // Interiorul întâi, ca să nu mutăm noduri dintr-un span deja scos.
+            for (let i = spans.length - 1; i >= 0; i--) {
+                const s = spans[i];
+                const st = s.getAttribute('style') || '';
+                const wrappers = [];
+                if (!alreadyBold && boldRe.test(st)) {
+                    const b = doc.createElement('span');
+                    b.className = 'text_obisnuit2';
+                    wrappers.push(b);
+                }
+                if (/font-style\s*:\s*(?:italic|oblique)/i.test(st) && !s.closest('em, i')) wrappers.push(doc.createElement('em'));
+                if (/text-decoration[\w-]*\s*:[^;]*underline/i.test(st) && !s.closest('u')) wrappers.push(doc.createElement('u'));
+                const parent = s.parentNode;
+                if (!parent) continue;
+                let target = parent, outer = null;
+                if (wrappers.length) {
+                    outer = wrappers[0];
+                    for (let w = 1; w < wrappers.length; w++) wrappers[w - 1].appendChild(wrappers[w]);
+                    target = wrappers[wrappers.length - 1];
+                    parent.insertBefore(outer, s);
+                }
+                while (s.firstChild) {
+                    if (outer) target.appendChild(s.firstChild);
+                    else parent.insertBefore(s.firstChild, s);
+                }
+                parent.removeChild(s);
+            }
+            if (wholeBold) p.className = 'text_obisnuit2';
+            p.normalize();
+            return true;
+        }
+
+        function cleanAiStyledSpansInRoot(root) {
+            if (!root || !root.querySelectorAll) return false;
+            let changed = false;
+            Array.prototype.slice.call(root.querySelectorAll('p')).forEach(function (p) {
+                if (p.querySelector('span[style]') && cleanAiStyledSpansInParagraph(p)) changed = true;
+            });
+            return changed;
+        }
+
+        // Varianta pe text HTML (cod/salvare): întoarce lista de înlocuiri pe paragraf,
+        // ca restul fișierului să rămână neatins (indentare, entități etc.).
+        function computeAiStyledSpanEdits(html) {
+            html = String(html || '');
+            const edits = [];
+            if (!/<span\b[^>]*\bstyle\s*=/i.test(html)) return edits;
+            const re = /<p\b[^>]*>[\s\S]*?<\/p>/gi;
+            let m;
+            while ((m = re.exec(html)) !== null) {
+                if (!/<span\b[^>]*\bstyle\s*=/i.test(m[0])) continue;
+                const tpl = document.createElement('template');
+                tpl.innerHTML = m[0];
+                const p = tpl.content.firstElementChild;
+                if (!p || p.nodeName !== 'P') continue;
+                const oldClass = p.getAttribute('class');
+                if (!cleanAiStyledSpansInParagraph(p)) continue;
+                const pOpen = /^<p\b[^>]*>/i.exec(m[0])[0];
+                let newOpen = pOpen;
+                const newClass = p.getAttribute('class');
+                if (newClass !== oldClass) {
+                    newOpen = /\bclass\s*=/i.test(pOpen)
+                        ? pOpen.replace(/\bclass\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, 'class="' + newClass + '"')
+                        : pOpen.replace(/^<p\b/i, '<p class="' + newClass + '"');
+                }
+                edits.push({ from: m.index, to: m.index + m[0].length, text: newOpen + p.innerHTML + '</p>' });
+            }
+            return edits;
+        }
+
+        function cleanAiStyledSpansInHtml(html) {
+            let out = String(html || '');
+            const edits = computeAiStyledSpanEdits(out);
+            for (let i = edits.length - 1; i >= 0; i--) {
+                out = out.slice(0, edits[i].from) + edits[i].text + out.slice(edits[i].to);
+            }
+            return out;
+        }
+
+        // La deschiderea unui fișier: rescrie în cod paragrafele cu stil AI.
+        // Întoarce câte paragrafe a reparat (0 = nimic de făcut).
+        function cleanAiStyleInOpenedTab(tab, path) {
+            if (!editor) return 0;
+            if (path && !/\.html?$/i.test(path)) return 0;
+            const edits = computeAiStyledSpanEdits(editor.getValue());
+            if (!edits.length) return 0;
+            const prevSync = isSyncFromDesign, prevRestore = _isRestoringTab;
+            isSyncFromDesign = true;
+            _isRestoringTab = true;
+            try {
+                editor.operation(() => {
+                    for (let i = edits.length - 1; i >= 0; i--) {
+                        editor.replaceRange(edits[i].text, editor.posFromIndex(edits[i].from), editor.posFromIndex(edits[i].to), '+aiStyleCleanup');
+                    }
+                });
+            } finally {
+                isSyncFromDesign = prevSync;
+                _isRestoringTab = prevRestore;
+            }
+            if (tab) tab.editorContent = editor.getValue();
+            return edits.length;
+        }
+
+        function markTabDirtyAfterAiCleanup(tab, count) {
+            if (!count || !tab) return;
+            tab.isDirty = true;
+            isDirty = true;
+            toast('Am rescris ' + count + ' paragraf(e) cu stil AI (span style) în text_obisnuit / text_obisnuit2. Salvează ca să rămână.');
+        }
+
+        // ── Butoanele N / B la nivel de paragraf ──
+        function getDesignCaretParagraph() {
+            const iframe = document.getElementById('preview');
+            const win = iframe && iframe.contentWindow;
+            const sel = win && win.getSelection();
+            if (!sel || !sel.rangeCount) return null;
+            let node = sel.getRangeAt(0).startContainer;
+            if (node && node.nodeType !== 1) node = node.parentNode;
+            const p = node && node.closest ? node.closest('p') : null;
+            return p && p.ownerDocument.body && p.ownerDocument.body.contains(p) ? p : null;
+        }
+
+        // true dacă nu e text selectat parțial (doar cursor, sau tot paragraful selectat)
+        function designSelectionIsWholeParagraph(p) {
+            const iframe = document.getElementById('preview');
+            const sel = iframe && iframe.contentWindow && iframe.contentWindow.getSelection();
+            if (!sel || !sel.rangeCount) return false;
+            const range = sel.getRangeAt(0);
+            if (range.collapsed) return true;
+            const norm = function (s) { return String(s || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim(); };
+            return norm(range.toString()) === norm(p.textContent);
+        }
+
+        function placeCaretAtEnd(el) {
+            const doc = el.ownerDocument;
+            const win = doc.defaultView;
+            const sel = win && win.getSelection();
+            if (!sel) return;
+            const r = doc.createRange();
+            r.selectNodeContents(el);
+            r.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(r);
+        }
+
+        // Scoate toate tagurile din paragraf, păstrând doar textul, link-urile și <br>.
+        function stripParagraphToPlain(p, keepEmU) {
+            const doc = p.ownerDocument;
+            const keep = keepEmU ? /^(?:A|BR|EM|U)$/ : /^(?:A|BR)$/;
+            Array.prototype.slice.call(p.querySelectorAll('*')).reverse().forEach(function (el) {
+                if (keep.test(el.nodeName)) {
+                    if (el.nodeName !== 'A' && el.nodeName !== 'BR') {
+                        Array.prototype.slice.call(el.attributes).forEach(function (a) { el.removeAttribute(a.name); });
+                    }
+                    return;
+                }
+                const parent = el.parentNode;
+                if (!parent) return;
+                while (el.firstChild) parent.insertBefore(el.firstChild, el);
+                parent.removeChild(el);
+            });
+            if (keepEmU) {
+                Array.prototype.slice.call(p.querySelectorAll('i')).forEach(function (i) {
+                    const em = doc.createElement('em');
+                    while (i.firstChild) em.appendChild(i.firstChild);
+                    i.parentNode.replaceChild(em, i);
+                });
+            }
+            p.normalize();
+        }
+
+        function setDesignParagraphStyle(p, cls) {
+            designPushCurrentState();
+            Array.prototype.slice.call(p.attributes).forEach(function (a) {
+                if (a.name !== 'class') p.removeAttribute(a.name);
+            });
+            // N = paragraf complet curat; B = bold pe tot paragraful, dar păstrează italic/underline
+            stripParagraphToPlain(p, cls === 'text_obisnuit2');
+            p.className = cls;
+            placeCaretAtEnd(p);
+            syncFromDesign();
+            lastDesignSnapshot = getDesignBodyHtml();
+            if (typeof updatePropertiesPanelFromSelection === 'function') {
+                try { updatePropertiesPanelFromSelection(); } catch (e) { }
+            }
+            refreshParagraphStyleButtons();
+        }
+
+        function applyNormalParagraphStyle() {
+            const p = getDesignCaretParagraph();
+            if (!p) { toast('Dă click într-un paragraf din Design.'); return; }
+            setDesignParagraphStyle(p, 'text_obisnuit');
+        }
+
+        // B: text_obisnuit → text_obisnuit2, apoi la al doilea click înapoi la text_obisnuit.
+        // Întoarce false dacă e selectată doar o bucată de text (atunci rămâne bold-ul vechi, pe selecție).
+        function toggleBoldParagraphStyle() {
+            const p = getDesignCaretParagraph();
+            if (!p || !designSelectionIsWholeParagraph(p)) return false;
+            const isBold = p.classList.contains('text_obisnuit2');
+            setDesignParagraphStyle(p, isBold ? 'text_obisnuit' : 'text_obisnuit2');
+            return true;
+        }
+
+        function refreshParagraphStyleButtons() {
+            const p = getDesignCaretParagraph();
+            const isBold = !!(p && p.classList.contains('text_obisnuit2'));
+            const isNormal = !!(p && p.classList.contains('text_obisnuit'));
+            const top = document.getElementById('btnClassObisnuit2');
+            if (top) top.classList.toggle('active', isBold);
+            const nBtn = document.getElementById('btnClassNormal');
+            if (nBtn) nBtn.classList.toggle('active', isNormal);
+            const propB = document.getElementById('propBold');
+            if (propB && isBold) propB.style.background = 'rgba(59,130,246,0.3)';
+        }
+
         function designSelectionHasCssClass(el, className) {
             if (!el || !className) return false;
             var node = el;
@@ -7886,6 +8178,7 @@ if (isset($_GET['action'])) {
             clearSasaDesignHighlight(doc);
             cleanupParagraphBoundaryBrArtifacts(doc);
             removePasteWhitespaceNormalSpansFromDom(doc.body);
+            cleanAiStyledSpansInRoot(doc.body);
             // Replace &nbsp; with regular space in SASA region and h1.den_articol
             var rawInner = cleanNbspInHtml(doc.body.innerHTML);
             rawInner = removePasteWhitespaceNormalSpansFromHtml(rawInner);
@@ -8337,6 +8630,7 @@ if (isset($_GET['action'])) {
 
             function finishPlainTextPaste() {
                 removePasteWhitespaceNormalSpansFromDom(doc.body);
+                cleanAiStyledSpansInRoot(doc.body);
                 cleanupParagraphBoundaryBrArtifacts(doc);
                 clearTimeout(designInputDebounceTimer);
                 designInputDebounceTimer = setTimeout(syncFromDesign, 80);
@@ -9217,6 +9511,48 @@ if (isset($_GET['action'])) {
             body.textContent = text;
             return dlg;
         }
+        // fereastra proprie de confirmare (in locul confirm()-ului din Chrome) → Promise<true|false>
+        function confirmEmailDialog(info) {
+            return new Promise(function (resolve) {
+                const old = document.getElementById('emailConfirmDialog');
+                if (old) old.remove();
+                const esc = function (s) { return String(s || '').replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+                const dlg = document.createElement('div');
+                dlg.id = 'emailConfirmDialog';
+                dlg.style.cssText = 'position:fixed;inset:0;z-index:100003;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(2px)';
+                dlg.innerHTML =
+                    '<div style="width:min(520px,calc(100% - 32px));background:#1f2330;border:1px solid #3a4152;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.6);font-family:Segoe UI,Arial,sans-serif;overflow:hidden">' +
+                    '<div style="display:flex;align-items:center;gap:12px;padding:18px 22px 6px">' +
+                    '<span style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;background:rgba(34,197,94,.15);font-size:20px">✉️</span>' +
+                    '<b style="color:#f1f5f9;font-size:19px">Trimit articolul pe email?</b></div>' +
+                    '<div style="padding:8px 22px 4px;color:#94a3b8;font-size:14px">Ultimul articol din <code style="color:#cbd5e1">ro/index.html</code>:</div>' +
+                    '<div style="margin:10px 22px 4px;padding:14px 16px;background:#161a24;border:1px solid #2f3646;border-left:4px solid #22c55e;border-radius:8px">' +
+                    (info.title ? '<div style="color:#f8fafc;font-size:17px;font-weight:600;margin-bottom:6px">' + esc(info.title) + '</div>' : '') +
+                    '<a href="' + esc(info.link) + '" target="_blank" rel="noopener" style="color:#38bdf8;font-size:14px;word-break:break-all;text-decoration:none">' + esc(info.link) + '</a></div>' +
+                    '<div style="display:flex;justify-content:flex-end;gap:10px;padding:18px 22px 20px">' +
+                    '<button type="button" class="ecf-cancel" style="padding:9px 20px;border-radius:8px;border:1px solid #475066;background:transparent;color:#e2e8f0;font-size:15px;cursor:pointer">Anulează</button>' +
+                    '<button type="button" class="ecf-ok" style="padding:9px 22px;border-radius:8px;border:0;background:#16a34a;color:#fff;font-size:15px;font-weight:600;cursor:pointer">Trimite e-mail</button>' +
+                    '</div></div>';
+                document.body.appendChild(dlg);
+                const done = function (val) {
+                    document.removeEventListener('keydown', onKey, true);
+                    dlg.remove();
+                    resolve(val);
+                };
+                const onKey = function (e) {
+                    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+                    else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); }
+                };
+                document.addEventListener('keydown', onKey, true);
+                dlg.querySelector('.ecf-ok').onclick = function () { done(true); };
+                dlg.querySelector('.ecf-cancel').onclick = function () { done(false); };
+                dlg.addEventListener('click', function (e) { if (e.target === dlg) done(false); });
+                const ok = dlg.querySelector('.ecf-ok');
+                ok.onmouseenter = function () { ok.style.background = '#15803d'; };
+                ok.onmouseleave = function () { ok.style.background = '#16a34a'; };
+                ok.focus();
+            });
+        }
         async function sendLatestArticleEmail() {
             const btn = document.getElementById('btnSendArticleEmail');
             if (btn && btn.disabled) return;
@@ -9233,8 +9569,7 @@ if (isset($_GET['action'])) {
                 showErrorPopup('Nu am găsit niciun articol la începutul listei din ro/index.html.\nNu trimit nimic.');
                 return;
             }
-            if (!window.confirm('Trimit pe email ultimul articol din index?\n\n' +
-                (info.title ? info.title + '\n' : '') + info.link)) return;
+            if (!await confirmEmailDialog(info)) return;
             if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
             const dlg = showEmailConsole('Trimite E-mail', 'Se trimite emailul în fundal...\n\n' + info.link, '#facc15');
             dlg.dataset.busy = '1';
@@ -9943,6 +10278,11 @@ if (isset($_GET['action'])) {
                 quickClassBtn.dataset.className = 'text_obisnuit2';
                 const hasClass = designSelectionHasCssClass(el, 'text_obisnuit2');
                 quickClassBtn.classList.toggle('active', hasClass);
+            }
+            const normalClassBtn = document.getElementById('btnClassNormal');
+            if (normalClassBtn) {
+                const _np = el && el.closest ? el.closest('p') : null;
+                normalClassBtn.classList.toggle('active', !!(_np && _np.classList.contains('text_obisnuit')));
             }
             // Link / Target
             var linkInp = document.getElementById('propLink');
@@ -10752,6 +11092,7 @@ if (isset($_GET['action'])) {
                 isSyncFromDesign = false;
                 _isRestoringTab = false;
                 editor.getDoc().clearHistory();
+                const aiFixedPath = cleanAiStyleInOpenedTab(tab, data.file);
                 lastPreviewHadBody = tab.lastPreviewHadBody;
                 clearTimeout(previewDebounceTimer);
                 previewDebounceTimer = null;
@@ -10761,6 +11102,7 @@ if (isset($_GET['action'])) {
                 designUndoStack = [];
                 designRedoStack = [];
                 lastDesignSnapshot = null;
+                markTabDirtyAfterAiCleanup(tab, aiFixedPath);
 
                 setViewMode('design');
                 renderTabs();
@@ -10830,6 +11172,7 @@ if (isset($_GET['action'])) {
                 isSyncFromDesign = false;
                 _isRestoringTab = false;
                 editor.getDoc().clearHistory();
+                const aiFixedDrop = cleanAiStyleInOpenedTab(tab, file.name);
                 lastPreviewHadBody = tab.lastPreviewHadBody;
                 clearTimeout(previewDebounceTimer);
                 previewDebounceTimer = null;
@@ -10839,6 +11182,7 @@ if (isset($_GET['action'])) {
                 designUndoStack = [];
                 designRedoStack = [];
                 lastDesignSnapshot = null;
+                markTabDirtyAfterAiCleanup(tab, aiFixedDrop);
 
                 setViewMode('design');
                 renderTabs();
@@ -11116,6 +11460,8 @@ if (isset($_GET['action'])) {
             document.getElementById('propSize').addEventListener('change', () => applyFontProperty('fontSize', document.getElementById('propSize').value));
             document.getElementById('propBold').addEventListener('mousedown', e => e.preventDefault());
             document.getElementById('propBold').addEventListener('click', () => {
+                // Cursor în paragraf (sau tot paragraful selectat) → comută text_obisnuit2 / text_obisnuit
+                if (toggleBoldParagraphStyle()) return;
                 toggleInlineFormat('bold');
             });
             document.getElementById('propItalic').addEventListener('mousedown', e => e.preventDefault());
@@ -11143,11 +11489,18 @@ if (isset($_GET['action'])) {
                     toggleInlineFormat('underline');
                 });
             }
-            // Shortcut în topbar: B lângă Redo → aplică clasa text_obisnuit2 pe selecția din Design
+            // N: paragraful cu cursorul devine <p class="text_obisnuit"> (fără alte taguri)
+            const normalClassBtn = document.getElementById('btnClassNormal');
+            if (normalClassBtn) {
+                normalClassBtn.addEventListener('mousedown', e => e.preventDefault());
+                normalClassBtn.addEventListener('click', applyNormalParagraphStyle);
+            }
+            // Shortcut în topbar: B lângă Redo → comută paragraful text_obisnuit2 / text_obisnuit
             const quickClassBtn = document.getElementById('btnClassObisnuit2');
             if (quickClassBtn) {
                 quickClassBtn.addEventListener('mousedown', e => e.preventDefault());
                 quickClassBtn.addEventListener('click', () => {
+                    if (toggleBoldParagraphStyle()) return;
                     const targetClass = quickClassBtn.dataset.className || 'text_obisnuit2';
                     applyClassProperty(targetClass);
                     const el = getDesignSelection();
